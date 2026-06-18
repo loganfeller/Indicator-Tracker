@@ -1,0 +1,516 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Economic Indicator Tracker</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#fff;--bg2:#f7f6f3;--bg3:#eeede8;
+  --text:#1a1a18;--text2:#5f5e5a;--text3:#9b9a95;
+  --border:rgba(0,0,0,0.1);--border2:rgba(0,0,0,0.2);
+  --blue-bg:#e6f1fb;--blue-text:#185fa5;--blue-border:#b5d4f4;
+  --green-bg:#eaf3de;--green-text:#3b6d11;
+  --amber-bg:#faeeda;--amber-text:#854f0b;
+  --red-bg:#fcebeb;--red-text:#a32d2d;
+  --r:8px;--rl:12px;
+}
+@media(prefers-color-scheme:dark){:root{
+  --bg:#1c1c1a;--bg2:#252523;--bg3:#2e2e2b;
+  --text:#e8e7e1;--text2:#a8a79f;--text3:#6b6a64;
+  --border:rgba(255,255,255,0.1);--border2:rgba(255,255,255,0.2);
+  --blue-bg:#0c3052;--blue-text:#85b7eb;--blue-border:#185fa5;
+  --green-bg:#173404;--green-text:#97c459;
+  --amber-bg:#412402;--amber-text:#fac775;
+  --red-bg:#501313;--red-text:#f09595;
+}}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:14px;color:var(--text);background:var(--bg);line-height:1.5}
+.wrap{max-width:1100px;margin:0 auto;padding:1.5rem 1rem}
+
+/* header */
+.hdr{display:flex;align-items:flex-start;justify-content:space-between;gap:1rem;flex-wrap:wrap;margin-bottom:1.25rem}
+h1{font-size:20px;font-weight:600}
+.hdr-sub{font-size:12px;color:var(--text2);margin-top:2px}
+.hdr-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+
+/* buttons */
+.btn{display:inline-flex;align-items:center;gap:5px;padding:6px 14px;font-size:12px;border:0.5px solid var(--border2);border-radius:var(--r);background:var(--bg);cursor:pointer;color:var(--text);font-family:inherit}
+.btn:hover{background:var(--bg2)}
+.btn:disabled{opacity:.4;cursor:not-allowed}
+.btn-primary{background:var(--blue-bg);border-color:var(--blue-border);color:var(--blue-text)}
+.btn-primary:hover{opacity:.85}
+
+/* setup panel */
+.setup{background:var(--bg2);border:0.5px solid var(--border);border-radius:var(--rl);padding:1rem 1.25rem;margin-bottom:1.25rem}
+.setup summary{font-size:13px;font-weight:500;cursor:pointer;user-select:none}
+.setup-body{margin-top:12px;display:flex;flex-direction:column;gap:10px}
+.setup-row label{display:block;font-size:11px;color:var(--text2);font-weight:500;margin-bottom:3px}
+.setup-row input{width:100%;max-width:560px;font-size:12px;padding:6px 9px;border:0.5px solid var(--border2);border-radius:var(--r);background:var(--bg);color:var(--text);font-family:monospace}
+
+/* source status */
+.sources{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:8px;margin-bottom:1.25rem}
+.src{border:0.5px solid var(--border);border-radius:var(--r);padding:9px 12px}
+.src-name{font-size:12px;font-weight:500}
+.src-status{display:flex;align-items:center;gap:5px;font-size:11px;color:var(--text3);margin-top:3px}
+.dot{width:7px;height:7px;border-radius:50%;background:var(--border2);flex-shrink:0}
+.dot-ok{background:#639922}.dot-err{background:#e24b4a}
+.dot-load{background:#ef9f27;animation:pulse 1s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+
+/* tabs */
+.tabs{display:flex;gap:4px;flex-wrap:wrap;border-bottom:0.5px solid var(--border);padding-bottom:.75rem;margin-bottom:1rem}
+.tab{padding:5px 13px;font-size:13px;border:0.5px solid transparent;border-radius:var(--r);cursor:pointer;background:transparent;color:var(--text2);font-family:inherit}
+.tab:hover{background:var(--bg2);color:var(--text)}
+.tab.active{background:var(--bg2);color:var(--text);border-color:var(--border2);font-weight:500}
+.mtabs{display:flex;gap:4px;flex-wrap:wrap;margin-bottom:1rem}
+.mtab{padding:4px 12px;font-size:12px;border:0.5px solid var(--border);border-radius:20px;cursor:pointer;background:transparent;color:var(--text2);font-family:inherit}
+.mtab.active{background:var(--blue-bg);color:var(--blue-text);border-color:var(--blue-border)}
+.section{display:none}.section.active{display:block}
+
+/* table */
+.tbl-wrap{overflow-x:auto;border:0.5px solid var(--border);border-radius:var(--rl)}
+table{width:100%;border-collapse:collapse;min-width:580px}
+th{background:var(--bg2);padding:8px 11px;text-align:left;font-size:11px;font-weight:500;color:var(--text2);border-bottom:0.5px solid var(--border);white-space:nowrap;text-transform:uppercase;letter-spacing:.04em}
+td{padding:8px 11px;border-bottom:0.5px solid var(--border);font-size:13px;vertical-align:middle}
+tr:last-child td{border-bottom:none}
+tr:hover td{background:var(--bg2)}
+.row-label{font-weight:500;white-space:nowrap}
+.num{font-variant-numeric:tabular-nums}
+.badge{display:inline-block;padding:2px 7px;border-radius:10px;font-size:10px;font-weight:500;margin-left:4px;vertical-align:1px}
+.b-live{background:var(--green-bg);color:var(--green-text)}
+.editable{cursor:text;border-bottom:1px dashed var(--border2);min-width:36px;display:inline-block;outline:none}
+.editable:focus{border-bottom:none;outline:1.5px solid #378ADD;border-radius:3px;padding:0 3px}
+
+/* divergence cells */
+.dhi{background:var(--green-bg)!important}
+.dmd{background:var(--amber-bg)!important}
+.dlo{background:var(--red-bg)!important}
+.dpill{padding:2px 7px;border-radius:4px;font-size:12px}
+
+/* legend */
+.legend{display:flex;gap:14px;flex-wrap:wrap;margin-bottom:10px}
+.leg{display:flex;align-items:center;gap:5px;font-size:11px;color:var(--text2)}
+.leg-dot{width:8px;height:8px;border-radius:2px}
+
+/* contract map */
+.cmap{border:0.5px solid var(--border);border-radius:var(--rl);padding:1rem 1.25rem;margin-bottom:1rem}
+.cmap h3{font-size:13px;font-weight:500;margin-bottom:4px}
+.cmap-sub{font-size:11px;color:var(--text2);margin-bottom:10px;line-height:1.5}
+.cmap-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:6px}
+.cmap-row{display:flex;flex-direction:column;gap:2px}
+.cmap-label{font-size:10px;color:var(--text2)}
+.cmap-input{font-size:11px;padding:4px 7px;border:0.5px solid var(--border);border-radius:var(--r);background:var(--bg);color:var(--text);width:100%;font-family:monospace}
+.save-msg{font-size:11px;color:var(--green-text);margin-left:8px}
+
+.ts{font-size:11px;color:var(--text3)}
+code{font-family:monospace;font-size:11px;background:var(--bg3);padding:2px 5px;border-radius:4px}
+a{color:var(--blue-text)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<div class="hdr">
+  <div>
+    <h1>Economic Indicator Tracker</h1>
+    <div class="hdr-sub">Prediction markets vs formal indicators — 8 economies · 5 metrics · oil</div>
+  </div>
+  <div class="hdr-actions">
+    <span class="ts" id="ts"></span>
+    <button class="btn btn-primary" id="btn-refresh" onclick="loadData()">&#8635; Refresh</button>
+    <button class="btn" onclick="exportCSV()">&#8595; Export CSV</button>
+  </div>
+</div>
+
+<details class="setup" id="setup">
+  <summary>&#9881; Setup — configure data source</summary>
+  <div class="setup-body">
+    <div class="setup-row">
+      <label>Google Apps Script web app URL
+        <a href="https://developers.google.com/apps-script/guides/web" target="_blank" style="font-size:10px;margin-left:4px">how to deploy ↗</a>
+      </label>
+      <input id="sheet-url" type="url" placeholder="https://script.google.com/macros/s/YOUR_ID/exec">
+    </div>
+    <div><button class="btn btn-primary" onclick="saveUrl()">Save &amp; load data</button></div>
+    <div style="font-size:11px;color:var(--text2)">Deploy → New deployment → Web app → Execute as Me → Anyone. Paste URL above.</div>
+  </div>
+</details>
+
+<div class="sources">
+  <div class="src"><div class="src-name">Polymarket</div><div class="src-status"><span class="dot" id="d-poly"></span><span id="s-poly">—</span></div></div>
+  <div class="src"><div class="src-name">Kalshi</div><div class="src-status"><span class="dot" id="d-kalshi"></span><span id="s-kalshi">—</span></div></div>
+  <div class="src"><div class="src-name">FRED</div><div class="src-status"><span class="dot" id="d-fred"></span><span id="s-fred">—</span></div></div>
+  <div class="src"><div class="src-name">IMF</div><div class="src-status"><span class="dot" id="d-imf"></span><span id="s-imf">—</span></div></div>
+  <div class="src"><div class="src-name">FX (ECB)</div><div class="src-status"><span class="dot" id="d-fx"></span><span id="s-fx">—</span></div></div>
+  <div class="src"><div class="src-name">Oil (EIA)</div><div class="src-status"><span class="dot" id="d-oil"></span><span id="s-oil">—</span></div></div>
+</div>
+
+<div class="tabs">
+  <button class="tab active" onclick="switchTab('overview',event)">Overview</button>
+  <button class="tab" onclick="switchTab('poly',event)">Polymarket</button>
+  <button class="tab" onclick="switchTab('kalshi',event)">Kalshi</button>
+  <button class="tab" onclick="switchTab('formal',event)">Formal</button>
+  <button class="tab" onclick="switchTab('compare',event)">Mkt vs Formal</button>
+  <button class="tab" onclick="switchTab('pmcomp',event)">PM vs Kalshi</button>
+  <button class="tab" onclick="switchTab('oil',event)">Oil</button>
+  <button class="tab" onclick="switchTab('contracts',event)">Contract map</button>
+</div>
+
+<div class="mtabs" id="mtabs">
+  <button class="mtab active" onclick="switchMetric('cb_rate',event)">CB rate</button>
+  <button class="mtab" onclick="switchMetric('inflation',event)">Inflation</button>
+  <button class="mtab" onclick="switchMetric('gdp',event)">GDP growth</button>
+  <button class="mtab" onclick="switchMetric('unemployment',event)">Unemployment</button>
+  <button class="mtab" onclick="switchMetric('fx',event)">FX vs USD</button>
+</div>
+
+<div id="overview" class="section active"><div class="tbl-wrap" id="t-overview"></div></div>
+<div id="poly"     class="section"><div class="tbl-wrap" id="t-poly"></div></div>
+<div id="kalshi"   class="section"><div class="tbl-wrap" id="t-kalshi"></div></div>
+<div id="formal"   class="section"><div class="tbl-wrap" id="t-formal"></div></div>
+<div id="compare"  class="section">
+  <div class="legend">
+    <div class="leg"><div class="leg-dot" style="background:#639922"></div>&lt;0.5pp</div>
+    <div class="leg"><div class="leg-dot" style="background:#ef9f27"></div>0.5–1.5pp</div>
+    <div class="leg"><div class="leg-dot" style="background:#e24b4a"></div>&gt;1.5pp</div>
+  </div>
+  <div class="tbl-wrap" id="t-compare"></div>
+</div>
+<div id="pmcomp" class="section"><div class="tbl-wrap" id="t-pmcomp"></div></div>
+
+<div id="oil" class="section">
+  <div class="tbl-wrap" id="t-oil"></div>
+</div>
+
+<div id="contracts" class="section">
+  <div class="cmap">
+    <h3>Polymarket slugs</h3>
+    <div class="cmap-sub">Paste the slug from the Polymarket market URL (e.g. <code>will-the-fed-cut-rates-in-2025</code>). Also editable directly in the Contracts sheet in Google Sheets.</div>
+    <div class="cmap-grid" id="poly-cmap"></div>
+  </div>
+  <div class="cmap">
+    <h3>Kalshi series tickers</h3>
+    <div class="cmap-sub">Paste the Kalshi series ticker (e.g. <code>KXFEDRATE</code>).</div>
+    <div class="cmap-grid" id="kalshi-cmap"></div>
+  </div>
+  <button class="btn btn-primary" onclick="saveContracts()">Save contract map</button>
+  <span class="save-msg" id="save-msg"></span>
+  <div style="font-size:11px;color:var(--text2);margin-top:8px">Saves to this browser only. For shared persistence, edit the Contracts sheet in Google Sheets directly.</div>
+</div>
+
+</div>
+<script>
+const ECONOMIES=[
+  {id:'us',flag:'🇺🇸',name:'United States'},
+  {id:'ea',flag:'🇪🇺',name:'Euro Area'},
+  {id:'jp',flag:'🇯🇵',name:'Japan'},
+  {id:'uk',flag:'🇬🇧',name:'United Kingdom'},
+  {id:'cn',flag:'🇨🇳',name:'China'},
+  {id:'in',flag:'🇮🇳',name:'India'},
+  {id:'br',flag:'🇧🇷',name:'Brazil'},
+  {id:'ru',flag:'🇷🇺',name:'Russia'},
+];
+const METRICS={cb_rate:{label:'CB rate',unit:'%'},inflation:{label:'Inflation',unit:'%'},gdp:{label:'GDP growth',unit:'%'},unemployment:{label:'Unemployment',unit:'%'},fx:{label:'FX / USD',unit:''}};
+const OIL_KEYS=['oil_wti','oil_brent'];
+const OIL_LABELS={'oil_wti':'WTI Crude Oil','oil_brent':'Brent Crude Oil'};
+
+const DEFAULT_CONTRACTS={
+  poly:{
+    us_cb_rate:'will-the-fed-funds-rate-be-450-to-475-on-december-31',
+    us_inflation:'will-us-cpi-be-above-3-percent-in-2025',
+    us_unemployment:'will-us-unemployment-rate-exceed-4-5-in-2025',
+    ea_cb_rate:'will-the-ecb-cut-rates-in-2025',
+    jp_cb_rate:'will-bank-of-japan-raise-rates-above-0-5-in-2025',
+    uk_cb_rate:'will-bank-of-england-cut-rates-in-q1-2025',
+    cn_gdp:'will-china-gdp-growth-exceed-5-in-2025',
+    oil_wti:'will-wti-oil-price-exceed-80-by-end-of-2025',
+    oil_brent:'will-brent-oil-price-exceed-85-by-end-of-2025',
+  },
+  kalshi:{
+    us_cb_rate:'KXFEDRATE',us_inflation:'KXCPI',us_gdp:'KXGDP',us_unemployment:'KXUNRATE',
+    ea_cb_rate:'KXECBRATE',jp_cb_rate:'KXBOJRATE',uk_cb_rate:'KXBOEBANK',
+  }
+};
+
+let rows={};         // key -> {poly,kalshi,formal,unit,label}
+let manual={};       // key_src -> value override
+let contracts=JSON.parse(JSON.stringify(DEFAULT_CONTRACTS));
+let sheetUrl='';
+let currentTab='overview';
+let currentMetric='cb_rate';
+
+try{const s=localStorage.getItem('econ_v2');if(s){const p=JSON.parse(s);if(p.contracts)contracts=p.contracts;if(p.manual)manual=p.manual;if(p.sheetUrl)sheetUrl=p.sheetUrl;if(p.rows)rows=p.rows;}}catch(_){}
+
+function save(){try{localStorage.setItem('econ_v2',JSON.stringify({contracts,manual,sheetUrl,rows}));}catch(_){}}
+
+window.addEventListener('DOMContentLoaded',()=>{
+  document.getElementById('sheet-url').value=sheetUrl;
+  if(sheetUrl)document.getElementById('setup').removeAttribute('open');
+  else document.getElementById('setup').setAttribute('open','');
+  renderAll();
+  if(sheetUrl&&!Object.keys(rows).length)loadData();
+});
+
+function saveUrl(){
+  sheetUrl=document.getElementById('sheet-url').value.trim();
+  save();document.getElementById('setup').removeAttribute('open');
+  loadData();
+}
+
+async function loadData(){
+  if(!sheetUrl){document.getElementById('setup').setAttribute('open','');return;}
+  const btn=document.getElementById('btn-refresh');
+  btn.disabled=true;btn.textContent='Loading…';
+  setSrc('poly','load','…');setSrc('kalshi','load','…');setSrc('fred','load','…');
+  setSrc('imf','load','…');setSrc('fx','load','…');setSrc('oil','load','…');
+  try{
+    const resp=await fetch(sheetUrl);
+    if(!resp.ok)throw new Error('HTTP '+resp.status);
+    const json=await resp.json();
+    rows={};
+    let counts={poly:0,kalshi:0,fred:0,imf:0,fx:0,oil:0};
+    (json.rows||[]).forEach(r=>{
+      rows[r.key]={poly:r.poly,kalshi:r.kalshi,formal:r.formal,unit:r.unit||'',label:r.label||r.key,updated:r.updated};
+      if(r.poly!==null){counts.poly++;}
+      if(r.kalshi!==null){counts.kalshi++;}
+      if(r.formal!==null){
+        if(r.key.startsWith('oil'))counts.oil++;
+        else if(r.key.endsWith('_fx'))counts.fx++;
+        else if(['us_cb_rate','us_inflation','us_gdp','us_unemployment'].includes(r.key)||r.key.endsWith('_cb_rate')||r.key.endsWith('_unemployment'))counts.fred++;
+        else counts.imf++;
+      }
+    });
+    setSrc('poly',counts.poly>0?'ok':'err',counts.poly>0?counts.poly+' mkts':'none');
+    setSrc('kalshi',counts.kalshi>0?'ok':'err',counts.kalshi>0?counts.kalshi+' mkts':'none');
+    setSrc('fred',counts.fred>0?'ok':'err',counts.fred>0?counts.fred+' series':'none');
+    setSrc('imf',counts.imf>0?'ok':'err',counts.imf>0?counts.imf+' series':'none');
+    setSrc('fx',counts.fx>0?'ok':'err',counts.fx>0?counts.fx+' rates':'none');
+    setSrc('oil',counts.oil>0?'ok':'err',counts.oil>0?counts.oil+' prices':'none');
+    document.getElementById('ts').textContent='Data as of '+(json.fetchedAt?new Date(json.fetchedAt).toLocaleString():new Date().toLocaleString());
+    save();
+  }catch(e){
+    ['poly','kalshi','fred','imf','fx','oil'].forEach(s=>setSrc(s,'err',e.message.substring(0,20)));
+    document.getElementById('ts').textContent='Load failed: '+e.message;
+  }
+  btn.disabled=false;btn.textContent='↻ Refresh';
+  renderAll();
+}
+
+function setSrc(src,state,msg){
+  const d=document.getElementById('d-'+src),s=document.getElementById('s-'+src);
+  if(!d)return;
+  d.className='dot'+(state==='ok'?' dot-ok':state==='err'?' dot-err':state==='load'?' dot-load':'');
+  s.textContent=msg;
+}
+
+function getV(key,src){
+  const r=rows[key]||{};
+  const man=manual[key+'_'+src];
+  if(src==='poly')   return r.poly!==null&&r.poly!==undefined?r.poly:(man??null);
+  if(src==='kalshi') return r.kalshi!==null&&r.kalshi!==undefined?r.kalshi:(man??null);
+  if(src==='formal') return r.formal!==null&&r.formal!==undefined?r.formal:(man??null);
+  return null;
+}
+
+function setManual(key,src,raw){
+  const v=raw.trim();
+  manual[key+'_'+src]=(v===''||v==='—')?null:v;
+  save();renderAll();
+}
+
+function switchTab(t,e){
+  document.querySelectorAll('.tab').forEach(b=>b.classList.remove('active'));
+  document.querySelectorAll('.section').forEach(s=>s.classList.remove('active'));
+  if(e)e.target.classList.add('active');
+  document.getElementById(t).classList.add('active');
+  currentTab=t;
+  const showM=['overview','poly','kalshi','formal','compare','pmcomp'].includes(t);
+  document.getElementById('mtabs').style.display=showM?'flex':'none';
+  renderAll();
+}
+
+function switchMetric(m,e){
+  document.querySelectorAll('.mtab').forEach(b=>b.classList.remove('active'));
+  if(e)e.target.classList.add('active');
+  currentMetric=m;renderAll();
+}
+
+function mkTable(headers,rows){
+  return '<table><thead><tr>'+headers.map(h=>`<th>${h}</th>`).join('')+'</tr></thead><tbody>'+
+    rows.map(r=>'<tr>'+r.map(c=>`<td>${c}</td>`).join('')+'</tr>').join('')+'</tbody></table>';
+}
+
+function ecoCell(e){return `<span style="font-weight:500;white-space:nowrap">${e.flag} ${e.name}</span>`;}
+
+function valCell(key,src){
+  const v=getV(key,src);
+  const r=rows[key]||{};const unit=r.unit||'';
+  if(v===null){
+    return `<span contenteditable="true" class="editable" style="color:var(--text3)"
+      onblur="setManual('${key}','${src}',this.textContent)"
+      onkeydown="if(event.key==='Enter'){event.preventDefault();this.blur()}">—</span>`;
+  }
+  const n=parseFloat(v);
+  return `<span class="num">${isNaN(n)?v:n.toFixed(2)}${unit?'&thinsp;'+unit:''}</span><span class="badge b-live">live</span>`;
+}
+
+function diffCell(a,b){
+  const an=parseFloat(a),bn=parseFloat(b);
+  if(isNaN(an)||isNaN(bn))return '—';
+  const d=an-bn,abs=Math.abs(d);
+  const cls=abs<0.5?'dhi':abs<1.5?'dmd':'dlo';
+  return `<span class="dpill ${cls}">${d>0?'+':''}${d.toFixed(2)}pp</span>`;
+}
+
+function renderOverview(){
+  const m=currentMetric;
+  const rows2=ECONOMIES.map(e=>{
+    const key=e.id+'_'+m;
+    const pv=getV(key,'poly'),kv=getV(key,'kalshi'),fv=getV(key,'formal');
+    const pn=parseFloat(pv),kn=parseFloat(kv);
+    const avg=(!isNaN(pn)&&!isNaN(kn))?((pn+kn)/2).toFixed(2):(!isNaN(pn)?pv:(!isNaN(kn)?kv:null));
+    const r=rows[key]||{};const unit=r.unit||'';
+    const fmt=v=>v!=null?`<span class="num">${parseFloat(v).toFixed(2)}${unit?'&thinsp;'+unit:''}</span>`:'<span style="color:var(--text3)">—</span>';
+    return[ecoCell(e),fmt(pv),fmt(kv),avg!=null?`<strong>${parseFloat(avg).toFixed(2)}${unit?'&thinsp;'+unit:''}</strong>`:'—',fmt(fv),diffCell(avg,fv)];
+  });
+  document.getElementById('t-overview').innerHTML=mkTable(['Economy','Polymarket','Kalshi','Mkt avg','Formal','Divergence'],rows2);
+}
+
+function renderPolyTab(){
+  const m=currentMetric;
+  const rows2=ECONOMIES.map(e=>{
+    const key=e.id+'_'+m;
+    const slug=(contracts.poly||{})[key]||'';
+    return[ecoCell(e),valCell(key,'poly'),
+      slug?`<a href="https://polymarket.com/market/${slug}" target="_blank" style="font-size:11px;font-family:monospace">${slug.length>44?slug.slice(0,44)+'…':slug}</a>`
+          :'<span style="color:var(--text3);font-size:11px">no contract — click — above to enter manually</span>'];
+  });
+  document.getElementById('t-poly').innerHTML=mkTable(['Economy','Value','Contract slug'],rows2);
+}
+
+function renderKalshiTab(){
+  const m=currentMetric;
+  const rows2=ECONOMIES.map(e=>{
+    const key=e.id+'_'+m;
+    const ticker=(contracts.kalshi||{})[key]||'';
+    return[ecoCell(e),valCell(key,'kalshi'),ticker?`<code>${ticker}</code>`:'<span style="color:var(--text3);font-size:11px">no ticker</span>'];
+  });
+  document.getElementById('t-kalshi').innerHTML=mkTable(['Economy','Value','Kalshi ticker'],rows2);
+}
+
+function renderFormalTab(){
+  const m=currentMetric;
+  const rows2=ECONOMIES.map(e=>{
+    const key=e.id+'_'+m;
+    const r=rows[key]||{};
+    return[ecoCell(e),valCell(key,'formal'),m==='fx'?'ECB/Frankfurter':['cb_rate','unemployment'].includes(m)?'FRED':'IMF/FRED'];
+  });
+  document.getElementById('t-formal').innerHTML=mkTable(['Economy','Value','Source'],rows2);
+}
+
+function renderCompareTab(){
+  const m=currentMetric;
+  const rows2=ECONOMIES.map(e=>{
+    const key=e.id+'_'+m;
+    const pv=getV(key,'poly'),kv=getV(key,'kalshi'),fv=getV(key,'formal');
+    const pn=parseFloat(pv),kn=parseFloat(kv);
+    const avg=(!isNaN(pn)&&!isNaN(kn))?((pn+kn)/2).toFixed(2):(!isNaN(pn)?pv:(!isNaN(kn)?kv:null));
+    const r=rows[key]||{};const unit=r.unit||'';
+    const fmt=v=>v!=null?parseFloat(v).toFixed(2)+(unit?'&thinsp;'+unit:''):'—';
+    return[ecoCell(e),fmt(pv),fmt(kv),avg!=null?`<strong>${parseFloat(avg).toFixed(2)}${unit?'&thinsp;'+unit:''}</strong>`:'—',fmt(fv),diffCell(avg,fv)];
+  });
+  document.getElementById('t-compare').innerHTML=mkTable(['Economy','Polymarket','Kalshi','Mkt avg','Formal','Divergence'],rows2);
+}
+
+function renderPMCompTab(){
+  const m=currentMetric;
+  const rows2=ECONOMIES.map(e=>{
+    const key=e.id+'_'+m;
+    const pv=getV(key,'poly'),kv=getV(key,'kalshi');
+    const pn=parseFloat(pv),kn=parseFloat(kv);
+    const diff=(!isNaN(pn)&&!isNaN(kn))?pn-kn:null;
+    const abs=diff!==null?Math.abs(diff):null;
+    const cls=diff===null?'':(abs<0.3?'dhi':abs<0.8?'dmd':'dlo');
+    const larger=diff===null?'—':diff>0?'Polymarket':diff<0?'Kalshi':'Equal';
+    return[ecoCell(e),pv!=null?parseFloat(pv).toFixed(2):'—',kv!=null?parseFloat(kv).toFixed(2):'—',
+      diff!==null?`<span class="dpill ${cls}">${diff>0?'+':''}${diff.toFixed(2)}pp</span>`:'—',larger];
+  });
+  document.getElementById('t-pmcomp').innerHTML=mkTable(['Economy','Polymarket','Kalshi','Spread','Higher'],rows2);
+}
+
+function renderOilTab(){
+  const oilRows=OIL_KEYS.map(key=>{
+    const pv=getV(key,'poly'),fv=getV(key,'formal');
+    const label=OIL_LABELS[key]||key;
+    const slug=(contracts.poly||{})[key]||'';
+    return[
+      `<span style="font-weight:500">${label}</span>`,
+      valCell(key,'poly'),
+      valCell(key,'formal'),
+      diffCell(pv,fv),
+      slug?`<a href="https://polymarket.com/market/${slug}" target="_blank" style="font-size:11px;font-family:monospace">${slug.length>36?slug.slice(0,36)+'…':slug}</a>`:'<span style="color:var(--text3);font-size:11px">—</span>',
+    ];
+  });
+  document.getElementById('t-oil').innerHTML=mkTable(['Commodity','Polymarket (implied)','Spot price (EIA)','Divergence','Contract slug'],oilRows);
+}
+
+function renderContractMap(){
+  const allKeys=[...ECONOMIES.flatMap(e=>Object.keys(METRICS).map(m=>e.id+'_'+m)),...OIL_KEYS];
+  const allLabels={...Object.fromEntries(ECONOMIES.flatMap(e=>Object.keys(METRICS).map(m=>[e.id+'_'+m,e.flag+' '+e.name+' — '+METRICS[m].label]))),'oil_wti':'WTI Crude Oil','oil_brent':'Brent Crude Oil'};
+  let ph='<div class="cmap-grid">';
+  allKeys.forEach(key=>{
+    const v=(contracts.poly||{})[key]||'';
+    ph+=`<div class="cmap-row"><label class="cmap-label">${allLabels[key]||key}</label><input class="cmap-input" id="pc_${key}" value="${v}" placeholder="polymarket-slug"></div>`;
+  });
+  ph+='</div>';
+  document.getElementById('poly-cmap').innerHTML=ph;
+
+  let kh='<div class="cmap-grid">';
+  allKeys.forEach(key=>{
+    const v=(contracts.kalshi||{})[key]||'';
+    kh+=`<div class="cmap-row"><label class="cmap-label">${allLabels[key]||key}</label><input class="cmap-input" id="kc_${key}" value="${v}" placeholder="SERIES-TICKER"></div>`;
+  });
+  kh+='</div>';
+  document.getElementById('kalshi-cmap').innerHTML=kh;
+}
+
+function saveContracts(){
+  const allKeys=[...ECONOMIES.flatMap(e=>Object.keys(METRICS).map(m=>e.id+'_'+m)),...OIL_KEYS];
+  if(!contracts.poly)contracts.poly={};
+  if(!contracts.kalshi)contracts.kalshi={};
+  allKeys.forEach(key=>{
+    const pi=document.getElementById('pc_'+key);
+    const ki=document.getElementById('kc_'+key);
+    if(pi)contracts.poly[key]=pi.value.trim();
+    if(ki)contracts.kalshi[key]=ki.value.trim();
+  });
+  save();
+  const msg=document.getElementById('save-msg');
+  msg.textContent='Saved ✓';setTimeout(()=>{msg.textContent='';},2000);
+}
+
+function renderAll(){
+  renderOverview();renderPolyTab();renderKalshiTab();renderFormalTab();
+  renderCompareTab();renderPMCompTab();renderOilTab();renderContractMap();
+}
+
+function exportCSV(){
+  const m=currentMetric;
+  let csv='Economy,Polymarket,Kalshi,Mkt avg,Formal,Divergence\n';
+  ECONOMIES.forEach(e=>{
+    const key=e.id+'_'+m;
+    const pv=getV(key,'poly'),kv=getV(key,'kalshi'),fv=getV(key,'formal');
+    const pn=parseFloat(pv),kn=parseFloat(kv),fn=parseFloat(fv);
+    const avg=(!isNaN(pn)&&!isNaN(kn))?((pn+kn)/2).toFixed(2):'';
+    const div=(avg!==''&&!isNaN(fn))?(parseFloat(avg)-fn).toFixed(2):'';
+    csv+=`${e.name},${pv||''},${kv||''},${avg},${fv||''},${div}\n`;
+  });
+  const a=document.createElement('a');
+  a.href='data:text/csv;charset=utf-8,'+encodeURIComponent(csv);
+  a.download=`econ_${m}_${new Date().toISOString().slice(0,10)}.csv`;
+  a.click();
+}
+</script>
+</body>
+</html>
