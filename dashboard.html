@@ -134,15 +134,15 @@ a{color:var(--blue-text)}
   <div class="keys-grid">
     <div class="key-row">
       <label class="key-label">FRED API key <a href="https://fred.stlouisfed.org/docs/api/api_key.html" target="_blank" style="font-size:10px">get free key ↗</a></label>
-      <input class="key-input" id="k-fred" type="password" placeholder="32-character key" autocomplete="off">
+      <input class="key-input" id="k-fred" type="password" placeholder="32-character key" autocomplete="off" onchange="autoSaveKeys()">
     </div>
     <div class="key-row">
       <label class="key-label">EIA API key <a href="https://www.eia.gov/opendata/register.php" target="_blank" style="font-size:10px">get free key ↗</a></label>
-      <input class="key-input" id="k-eia" type="password" placeholder="EIA key" autocomplete="off">
+      <input class="key-input" id="k-eia" type="password" placeholder="EIA key" autocomplete="off" onchange="autoSaveKeys()">
     </div>
     <div class="key-row">
       <label class="key-label">Kalshi API key <a href="https://kalshi.com/account/api-keys" target="_blank" style="font-size:10px">get key ↗</a></label>
-      <input class="key-input" id="k-kalshi" type="password" placeholder="Kalshi key (optional)" autocomplete="off">
+      <input class="key-input" id="k-kalshi" type="password" placeholder="Kalshi key (optional)" autocomplete="off" onchange="autoSaveKeys()">
     </div>
   </div>
   <div style="margin-top:10px"><button class="btn btn-primary btn-sm" onclick="saveKeys()">Save keys</button> <span class="save-msg" id="keys-msg"></span></div>
@@ -321,6 +321,14 @@ function saveKeys() {
   setTimeout(() => { m.textContent = ''; }, 2000);
 }
 
+// Also save keys whenever input changes so they're never lost
+function autoSaveKeys() {
+  keys.fred   = document.getElementById('k-fred').value.trim();
+  keys.eia    = document.getElementById('k-eia').value.trim();
+  keys.kalshi = document.getElementById('k-kalshi').value.trim();
+  persist();
+}
+
 // ── Source status helpers ──────────────────────────────────
 function setSrc(id, state, msg) {
   const d = document.getElementById('d-'+id);
@@ -418,8 +426,27 @@ async function fetchKalshi() {
 async function fetchFRED() {
   setSrc('fred','load','fetching…');
   if (!keys.fred) { setSrc('fred','err','no API key'); return; }
-  // Use corsproxy.io since FRED blocks direct browser requests
-  const proxy = 'https://corsproxy.io/?url=';
+  // Try multiple CORS proxies in sequence
+  const PROXIES = [
+    url => 'https://corsproxy.io/?url=' + encodeURIComponent(url),
+    url => 'https://api.allorigins.win/get?url=' + encodeURIComponent(url),
+    url => 'https://proxy.cors.sh/' + url,
+  ];
+
+  async function fetchViaProxy(url) {
+    for (const makeUrl of PROXIES) {
+      try {
+        const proxyUrl = makeUrl(url);
+        const r = await withTimeout(fetch(proxyUrl), TIMEOUT);
+        if (!r.ok) continue;
+        const d = await r.json();
+        // allorigins wraps in {contents:...}, others return directly
+        return d.contents ? JSON.parse(d.contents) : d;
+      } catch(_) { continue; }
+    }
+    throw new Error('all proxies failed');
+  }
+
   const base  = 'https://api.stlouisfed.org/fred/series/observations';
   const entries = Object.entries(FRED_CFG);
   let ok = 0, fail = 0;
@@ -428,7 +455,7 @@ async function fetchFRED() {
       const limit = cfg.type === 'yoy' ? 14 : 2;
       const fredUrl = base + '?series_id=' + cfg.sid + '&api_key=' + keys.fred +
                       '&file_type=json&sort_order=desc&limit=' + limit;
-      const inner = await fetchJSON(proxy + encodeURIComponent(fredUrl));
+      const inner = await fetchViaProxy(fredUrl);
       const obs = (inner.observations || []).filter(o => o.value !== '.' && o.value !== '');
       if (!obs.length) throw new Error('no obs');
       let value;
@@ -458,7 +485,7 @@ async function fetchIMF() {
   let ok = 0, fail = 0;
   await Promise.all(Object.entries(byIndicator).map(async ([ind, cfgs]) => {
     try {
-      const data = await fetchJSON('https://corsproxy.io/?url=' + encodeURIComponent('https://www.imf.org/external/datamapper/api/v1/' + ind));
+      const data = await fetchViaProxy('https://www.imf.org/external/datamapper/api/v1/' + ind);
       const values = (data.values || {})[ind] || {};
       cfgs.forEach(cfg => {
         const country = values[cfg.code] || {};
