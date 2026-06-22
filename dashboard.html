@@ -121,10 +121,10 @@ a{color:var(--blue-text)}
   <div class="hdr-right">
     <span class="ts" id="ts"></span>
     <button class="btn btn-primary" id="btn-refresh" onclick="refreshAll()">&#8635; Refresh all</button>
-    <button class="btn" onclick="refreshSource('poly')">Polymarket</button>
-    <button class="btn" onclick="refreshSource('kalshi')">Kalshi</button>
-    <button class="btn" onclick="refreshSource('formal')">Formal</button>
-    <button class="btn" onclick="exportCSV()">&#8595; CSV</button>
+    <button class="btn" id="btn-poly" onclick="refreshSource('poly')">Polymarket</button>
+    <button class="btn" id="btn-kalshi" onclick="refreshSource('kalshi')">Kalshi</button>
+    <button class="btn" id="btn-formal" onclick="refreshSource('formal')">Formal</button>
+    <button class="btn" id="btn-csv" onclick="exportCSV()">&#8595; CSV</button>
   </div>
 </div>
 
@@ -350,12 +350,38 @@ async function fetchPolymarket() {
   let ok = 0, fail = 0;
   await Promise.all(slugs.map(async ([key, slug]) => {
     try {
-      const data = await fetchJSON('https://gamma-api.polymarket.com/markets?slug=' + encodeURIComponent(slug));
-      const mkt  = Array.isArray(data) ? data[0] : data;
-      if (!mkt) throw new Error('no market');
+      // Try markets endpoint first, then events endpoint (for multi-outcome events)
       let price = null;
-      if (mkt.outcomePrices) { try { price = JSON.parse(mkt.outcomePrices)[0]; } catch(_) {} }
-      if (price === null && mkt.lastTradePrice) price = mkt.lastTradePrice;
+      const mktData = await fetchJSON('https://gamma-api.polymarket.com/markets?slug=' + encodeURIComponent(slug));
+      const mkt = Array.isArray(mktData) ? mktData[0] : mktData;
+      if (mkt) {
+        if (mkt.outcomePrices) { try { price = JSON.parse(mkt.outcomePrices)[0]; } catch(_) {} }
+        if (price === null && mkt.lastTradePrice) price = mkt.lastTradePrice;
+      }
+      if (price === null) {
+        const evtData = await fetchJSON('https://gamma-api.polymarket.com/events?slug=' + encodeURIComponent(slug));
+        const evt = Array.isArray(evtData) ? evtData[0] : evtData;
+        if (evt && evt.markets && evt.markets.length) {
+          // Find the outcome with the highest probability
+          let bestPrice = -1, bestLabel = null;
+          evt.markets.forEach(m => {
+            let p = null;
+            if (m.outcomePrices) { try { p = parseFloat(JSON.parse(m.outcomePrices)[0]); } catch(_) {} }
+            if (p === null && m.lastTradePrice) p = parseFloat(m.lastTradePrice);
+            if (p !== null && p > bestPrice) {
+              bestPrice = p;
+              bestLabel = m.groupItemTitle || m.question || m.outcomes || null;
+            }
+          });
+          if (bestLabel !== null) {
+            if (!liveData[key]) liveData[key] = {};
+            liveData[key].poly = bestLabel + ' (' + (bestPrice * 100).toFixed(0) + '%)';
+            ok++;
+            return;
+          }
+          price = bestPrice >= 0 ? bestPrice : null;
+        }
+      }
       if (price === null) throw new Error('no price');
       if (!liveData[key]) liveData[key] = {};
       liveData[key].poly = (parseFloat(price) * 100).toFixed(2);
@@ -496,29 +522,36 @@ async function fetchOil() {
 // ── Refresh orchestration ──────────────────────────────────
 const ALL_BTNS = ['btn-refresh'];
 
-function lockBtns(v) {
-  document.querySelectorAll('.btn').forEach(b => b.disabled = v);
+function setRefreshing(v) {
+  const ids = ['btn-refresh','btn-poly','btn-kalshi','btn-formal','btn-csv'];
+  ids.forEach(id => { const b = document.getElementById(id); if(b) b.disabled = v; });
 }
 
 async function refreshAll() {
-  lockBtns(true);
+  setRefreshing(true);
   document.getElementById('btn-refresh').textContent = '↻ Refreshing…';
-  await Promise.all([fetchPolymarket(), fetchKalshi(), fetchFRED(), fetchIMF(), fetchFX(), fetchOil()]);
-  persist();
-  document.getElementById('ts').textContent = 'Updated ' + new Date().toLocaleTimeString();
-  document.getElementById('btn-refresh').textContent = '↻ Refresh all';
-  lockBtns(false);
-  renderAll();
+  try {
+    await Promise.all([fetchPolymarket(), fetchKalshi(), fetchFRED(), fetchIMF(), fetchFX(), fetchOil()]);
+    persist();
+    document.getElementById('ts').textContent = 'Updated ' + new Date().toLocaleTimeString();
+  } finally {
+    document.getElementById('btn-refresh').textContent = '↻ Refresh all';
+    setRefreshing(false);
+    renderAll();
+  }
 }
 
 async function refreshSource(src) {
-  lockBtns(true);
-  if (src === 'poly')   await fetchPolymarket();
-  if (src === 'kalshi') await fetchKalshi();
-  if (src === 'formal') await Promise.all([fetchFRED(), fetchIMF(), fetchFX(), fetchOil()]);
-  persist();
-  lockBtns(false);
-  renderAll();
+  setRefreshing(true);
+  try {
+    if (src === 'poly')   await fetchPolymarket();
+    if (src === 'kalshi') await fetchKalshi();
+    if (src === 'formal') await Promise.all([fetchFRED(), fetchIMF(), fetchFX(), fetchOil()]);
+    persist();
+  } finally {
+    setRefreshing(false);
+    renderAll();
+  }
 }
 
 // ── Data accessors ─────────────────────────────────────────
