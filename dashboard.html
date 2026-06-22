@@ -303,11 +303,32 @@ function persist() {
 
 // ── Boot ───────────────────────────────────────────────────
 window.addEventListener('DOMContentLoaded', () => {
+  // Restore keys into input fields
   document.getElementById('k-fred').value   = keys.fred   || '';
   document.getElementById('k-eia').value    = keys.eia    || '';
   document.getElementById('k-kalshi').value = keys.kalshi || '';
+
+  // Collapse keys panel if keys already saved
   if (keys.fred || keys.eia) document.getElementById('keys-panel').removeAttribute('open');
+
+  // Show cached data immediately without fetching
   renderAll();
+
+  // Update source status cards to reflect cached data
+  const hasPoly   = Object.values(liveData).some(d => d.poly   !== undefined);
+  const hasKalshi = Object.values(liveData).some(d => d.kalshi !== undefined);
+  const hasFred   = Object.values(liveData).some(d => d.formal !== undefined);
+  const hasOil    = liveData['oil_wti']?.formal || liveData['oil_brent']?.formal;
+  const hasFX     = liveData['us_fx']?.formal;
+
+  if (hasPoly)   setSrc('poly',   'ok', 'cached');
+  if (hasKalshi) setSrc('kalshi', 'ok', 'cached');
+  if (hasFred)   setSrc('fred',   'ok', 'cached');
+  if (hasFred)   setSrc('imf',    'ok', 'cached');
+  if (hasFX)     setSrc('fx',     'ok', 'cached');
+  if (hasOil)    setSrc('oil',    'ok', 'cached');
+
+  document.getElementById('ts').textContent = 'Showing cached data — click Refresh to update';
 });
 
 // ── Key management ─────────────────────────────────────────
