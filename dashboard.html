@@ -1,856 +1,246 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Economic Indicator Tracker</title>
-<style>
-*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
-:root{
-  --bg:#fff;--bg2:#f7f6f3;--bg3:#eeede8;
-  --text:#1a1a18;--text2:#5f5e5a;--text3:#9b9a95;
-  --border:rgba(0,0,0,0.09);--border2:rgba(0,0,0,0.18);
-  --blue-bg:#e6f1fb;--blue-text:#185fa5;--blue-border:#b5d4f4;
-  --green-bg:#eaf3de;--green-text:#3b6d11;
-  --amber-bg:#faeeda;--amber-text:#854f0b;
-  --red-bg:#fcebeb;--red-text:#a32d2d;
-  --r:8px;--rl:12px;
+
+import os, time, math, asyncio
+from typing import Any, Dict, List, Optional
+import httpx
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
+
+FRED_API_KEY = os.getenv("FRED_API_KEY", "")
+EIA_API_KEY = os.getenv("EIA_API_KEY", "")
+CACHE_TTL = int(os.getenv("CACHE_TTL_SECONDS", "900"))
+
+app = FastAPI(title="Live Macro Forecast Dashboard API")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"], allow_credentials=True,
+    allow_methods=["*"], allow_headers=["*"],
+)
+
+cache: Dict[str, Any] = {"ts": 0, "data": None}
+
+ECONOMIES = [
+    {"id":"us","name":"United States","flag":"🇺🇸"},
+    {"id":"ea","name":"Euro Area","flag":"🇪🇺"},
+    {"id":"jp","name":"Japan","flag":"🇯🇵"},
+    {"id":"uk","name":"United Kingdom","flag":"🇬🇧"},
+    {"id":"cn","name":"China","flag":"🇨🇳"},
+    {"id":"in","name":"India","flag":"🇮🇳"},
+    {"id":"br","name":"Brazil","flag":"🇧🇷"},
+    {"id":"ru","name":"Russia","flag":"🇷🇺"},
+]
+
+METRICS = [
+    {"id":"policy_rate","label":"Policy rate","unit":"%"},
+    {"id":"inflation","label":"Inflation","unit":"%"},
+    {"id":"gdp","label":"Real GDP growth","unit":"%"},
+    {"id":"unemployment","label":"Unemployment","unit":"%"},
+    {"id":"fx","label":"FX vs USD","unit":""},
+]
+
+FRED_SERIES = {
+    "us_policy_rate": {"sid":"FEDFUNDS","type":"direct"},
+    "us_inflation": {"sid":"CPIAUCSL","type":"yoy"},
+    "us_gdp": {"sid":"A191RL1Q225SBEA","type":"direct"},
+    "us_unemployment": {"sid":"UNRATE","type":"direct"},
+    "ea_policy_rate": {"sid":"ECBDFR","type":"d
+    irect"},
+    "ea_unemployment": {"sid":"LRHUTTTTEZM156S","type":"direct"},
+    "jp_policy_rate": {"sid":"IRSTCB01JPM156N","type":"direct"},
+    "jp_unemployment": {"sid":"LRHUTTTTJPM156S","type":"direct"},
+    "uk_policy_rate": {"sid":"IUDSOIA","type":"direct"},
+    "uk_unemployment": {"sid":"LRHUTTTTGBM156S","type":"direct"},
+    "cn_policy_rate": {"sid":"IRSTCB01CNM156N","type":"direct"},
+    "in_policy_rate": {"sid":"IRSTCB01INM156N","type":"direct"},
+    "br_policy_rate": {"sid":"IRSTCB01BRM156N","type":"direct"},
+    "br_unemployment": {"sid":"LRUNTTTTBRQ156S","type":"direct"},
+    "ru_policy_rate": {"sid":"IRSTCB01RUM156N","type":"direct"},
+    "ru_unemployment": {"sid":"LRUNTTTTRUQ156S","type":"direct"},
 }
-@media(prefers-color-scheme:dark){:root{
-  --bg:#1c1c1a;--bg2:#252523;--bg3:#2e2e2b;
-  --text:#e8e7e1;--text2:#a8a79f;--text3:#6b6a64;
-  --border:rgba(255,255,255,0.08);--border2:rgba(255,255,255,0.18);
-  --blue-bg:#0c3052;--blue-text:#85b7eb;--blue-border:#185fa5;
-  --green-bg:#173404;--green-text:#97c459;
-  --amber-bg:#412402;--amber-text:#fac775;
-  --red-bg:#501313;--red-text:#f09595;
-}}
-body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:14px;color:var(--text);background:var(--bg);line-height:1.5}
-.wrap{max-width:1140px;margin:0 auto;padding:1.5rem 1rem}
 
-/* header */
-.hdr{display:flex;align-items:flex-start;justify-content:space-between;gap:1rem;flex-wrap:wrap;margin-bottom:1.25rem}
-h1{font-size:20px;font-weight:600}
-.hdr-sub{font-size:12px;color:var(--text2);margin-top:2px}
-.hdr-right{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+IMF_SERIES = [
+    ("ea_inflation","PCPIPCH","U2"), ("ea_gdp","NGDP_RPCH","U2"),
+    ("jp_inflation","PCPIPCH","JPN"), ("jp_gdp","NGDP_RPCH","JPN"),
+    ("uk_inflation","PCPIPCH","GBR"), ("uk_gdp","NGDP_RPCH","GBR"),
+    ("cn_inflation","PCPIPCH","CHN"), ("cn_gdp","NGDP_RPCH","CHN"), ("cn_unemployment","LUR","CHN"),
+    ("in_inflation","PCPIPCH","IND"), ("in_gdp","NGDP_RPCH","IND"), ("in_unemployment","LUR","IND"),
+    ("br_inflation","PCPIPCH","BRA"), ("br_gdp","NGDP_RPCH","BRA"),
+    ("ru_inflation","PCPIPCH","RUS"), ("ru_gdp","NGDP_RPCH","RUS"),
+]
 
-/* buttons */
-.btn{display:inline-flex;align-items:center;gap:5px;padding:6px 14px;font-size:12px;border:0.5px solid var(--border2);border-radius:var(--r);background:var(--bg);cursor:pointer;color:var(--text);font-family:inherit;transition:background .1s}
-.btn:hover{background:var(--bg2)}.btn:disabled{opacity:.4;cursor:not-allowed}
-.btn-primary{background:var(--blue-bg);border-color:var(--blue-border);color:var(--blue-text)}
-.btn-primary:hover{opacity:.85}
-.btn-sm{padding:4px 10px;font-size:11px}
+FX_MAP = {"ea":"EUR","jp":"JPY","uk":"GBP","cn":"CNY","in":"INR","br":"BRL","ru":"RUB"}
 
-/* keys panel */
-.keys-panel{background:var(--bg2);border:0.5px solid var(--border);border-radius:var(--rl);padding:1rem 1.25rem;margin-bottom:1.25rem}
-.keys-panel summary{font-size:13px;font-weight:500;cursor:pointer;user-select:none}
-.keys-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:8px;margin-top:12px}
-.key-row{display:flex;flex-direction:column;gap:3px}
-.key-label{font-size:11px;color:var(--text2);font-weight:500}
-.key-input{font-size:12px;padding:5px 8px;border:0.5px solid var(--border2);border-radius:var(--r);background:var(--bg);color:var(--text);font-family:monospace;width:100%}
+# Edit this list to map live prediction-market contracts to forecast rows.
+# For probability contracts, expected-value conversion requires custom outcome bins/thresholds.
+PREDICTION_MARKETS = [
+    # Example:
+    # {"provider":"polymarket","key":"us_policy_rate","slug":"fed-rate-hike-in-2026","kind":"probability"},
+]
 
-/* source cards */
-.sources{display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:8px;margin-bottom:1.25rem}
-.src{border:0.5px solid var(--border);border-radius:var(--r);padding:8px 11px}
-.src-name{font-size:12px;font-weight:500}
-.src-st{display:flex;align-items:center;gap:5px;font-size:11px;color:var(--text3);margin-top:3px}
-.dot{width:7px;height:7px;border-radius:50%;background:var(--border2);flex-shrink:0;transition:background .2s}
-.ok{background:#639922}.err{background:#e24b4a}
-.loading{background:#ef9f27;animation:pulse 1s infinite}
-@keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+async def get_json(client: httpx.AsyncClient, url: str, **kwargs):
+    r = await client.get(url, timeout=20, **kwargs)
+    r.raise_for_status()
+    return r.json()
 
-/* tabs */
-.tabs{display:flex;gap:4px;flex-wrap:wrap;border-bottom:0.5px solid var(--border);padding-bottom:.75rem;margin-bottom:1rem}
-.tab{padding:5px 13px;font-size:13px;border:0.5px solid transparent;border-radius:var(--r);cursor:pointer;background:transparent;color:var(--text2);font-family:inherit}
-.tab:hover{background:var(--bg2);color:var(--text)}
-.tab.active{background:var(--bg2);color:var(--text);border-color:var(--border2);font-weight:500}
-.mtabs{display:flex;gap:4px;flex-wrap:wrap;margin-bottom:1rem}
-.mtab{padding:4px 12px;font-size:12px;border:0.5px solid var(--border);border-radius:20px;cursor:pointer;background:transparent;color:var(--text2);font-family:inherit}
-.mtab.active{background:var(--blue-bg);color:var(--blue-text);border-color:var(--blue-border)}
-.section{display:none}.section.active{display:block}
+def latest_numeric(observations: List[dict]) -> Optional[float]:
+    for o in observations:
+        try:
+            if o.get("value") not in ("", "."):
+                return float(o["value"])
+        except Exception:
+            pass
+    return None
 
-/* table */
-.tbl-wrap{overflow-x:auto;border:0.5px solid var(--border);border-radius:var(--rl)}
-table{width:100%;border-collapse:collapse;min-width:560px}
-th{background:var(--bg2);padding:8px 11px;text-align:left;font-size:11px;font-weight:500;color:var(--text2);border-bottom:0.5px solid var(--border);white-space:nowrap;text-transform:uppercase;letter-spacing:.04em}
-td{padding:8px 11px;border-bottom:0.5px solid var(--border);font-size:13px;vertical-align:middle}
-tr:last-child td{border-bottom:none}
-tr:hover td{background:var(--bg2)}
-.fw{font-weight:500;white-space:nowrap}
-.num{font-variant-numeric:tabular-nums}
-.badge{display:inline-block;padding:2px 6px;border-radius:8px;font-size:10px;font-weight:500;margin-left:4px;vertical-align:1px}
-.b-live{background:var(--green-bg);color:var(--green-text)}
-.b-manual{background:var(--bg3);color:var(--text2)}
-.blank{color:var(--text3);font-size:12px}
+async def fetch_fred(client: httpx.AsyncClient) -> Dict[str, dict]:
+    out = {}
+    if not FRED_API_KEY:
+        return out
+    base = "https://api.stlouisfed.org/fred/series/observations"
+    for key, cfg in FRED_SERIES.items():
+        try:
+            limit = 14 if cfg["type"] == "yoy" else 3
+            data = await get_json(client, base, params={
+                "series_id": cfg["sid"],
+                "api_key": FRED_API_KEY,
+                "file_type": "json",
+                "sort_order": "desc",
+                "limit": limit
+            })
+            obs = data.get("observations", [])
+            if cfg["type"] == "yoy":
+                vals = [o for o in obs if o.get("value") not in ("", ".")]
+                if len(vals) >= 13:
+                    latest, year_ago = float(vals[0]["value"]), float(vals[12]["value"])
+                    value = (latest - year_ago) / year_ago * 100
+                else:
+                    continue
+            else:
+                value = latest_numeric(obs)
+            if value is not None:
+                out[key] = {"official": round(value, 4), "official_source": "FRED", "updated": time.time()}
+        except Exception as e:
+            out[key] = {"error": f"FRED: {str(e)[:80]}"}
+    return out
 
-/* editable */
-.editable{cursor:text;border-bottom:1px dashed var(--border2);min-width:40px;display:inline-block;outline:none}
-.editable:focus{border-bottom:none;outline:1.5px solid #378ADD;border-radius:3px;padding:0 3px}
+async def fetch_imf(client: httpx.AsyncClient) -> Dict[str, dict]:
+    out = {}
+    by_indicator: Dict[str, List[tuple]] = {}
+    for key, ind, code in IMF_SERIES:
+        by_indicator.setdefault(ind, []).append((key, code))
+    for ind, rows in by_indicator.items():
+        try:
+            data = await get_json(client, f"https://www.imf.org/external/datamapper/api/v1/{ind}")
+            values = (data.get("values") or {}).get(ind) or {}
+            for key, code in rows:
+                country = values.get(code) or {}
+                years = sorted([y for y in country.keys() if str(y).isdigit()], reverse=True)
+                val = None
+                for y in years:
+                    if country.get(y) is not None:
+                        val = float(country[y])
+                        break
+                if val is not None:
+                    out[key] = {"official": round(val, 4), "official_source": f"IMF DataMapper {ind}", "updated": time.time()}
+        except Exception as e:
+            for key, _ in rows:
+                out[key] = {"error": f"IMF: {str(e)[:80]}"}
+    return out
 
-/* divergence */
-.dhi{background:var(--green-bg)!important}.dmd{background:var(--amber-bg)!important}.dlo{background:var(--red-bg)!important}
-.dpill{padding:2px 7px;border-radius:4px;font-size:12px;display:inline-block}
+async def fetch_fx(client: httpx.AsyncClient) -> Dict[str, dict]:
+    out = {"us_fx": {"official": 1.0, "official_source": "USD base", "updated": time.time()}}
+    try:
+        codes = ",".join(FX_MAP.values())
+        data = await get_json(client, f"https://api.frankfurter.app/latest?from=USD&to={codes}")
+        rates = data.get("rates") or {}
+        for eid, code in FX_MAP.items():
+            if code in rates:
+                out[f"{eid}_fx"] = {"official": float(rates[code]), "official_source": "Frankfurter/ECB", "updated": time.time()}
+    except Exception as e:
+        out["_fx_error"] = {"error": str(e)[:80]}
+    return out
 
-/* legend */
-.legend{display:flex;gap:14px;flex-wrap:wrap;margin-bottom:10px}
-.leg{display:flex;align-items:center;gap:5px;font-size:11px;color:var(--text2)}
-.leg-dot{width:8px;height:8px;border-radius:2px}
+async def fetch_eia_oil(client: httpx.AsyncClient) -> Dict[str, dict]:
+    out = {}
+    if not EIA_API_KEY:
+        return out
+    series = {"oil_wti":"PET.RWTC.D", "oil_brent":"PET.RBRTE.D"}
+    for key, sid in series.items():
+        try:
+            url = f"https://api.eia.gov/v2/seriesid/{sid}"
+            data = await get_json(client, url, params={
+                "api_key": EIA_API_KEY,
+                "data[]":"value",
+                "sort[0][column]":"period",
+                "sort[0][direction]":"desc",
+                "length":1,
+                "out":"json"
+            })
+            rows = ((data.get("response") or {}).get("data") or [])
+            if rows:
+                out[key] = {"official": float(rows[0]["value"]), "official_source": "EIA", "updated": time.time()}
+        except Exception as e:
+            out[key] = {"error": f"EIA: {str(e)[:80]}"}
+    return out
 
-/* contract map */
-.cmap-section{border:0.5px solid var(--border);border-radius:var(--rl);padding:1rem 1.25rem;margin-bottom:1rem}
-.cmap-section h3{font-size:13px;font-weight:500;margin-bottom:4px}
-.cmap-sub{font-size:11px;color:var(--text2);margin-bottom:10px;line-height:1.5}
-.cmap-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:6px}
-.cmap-row label{display:block;font-size:10px;color:var(--text2);margin-bottom:2px}
-.cmap-input{font-size:11px;padding:4px 7px;border:0.5px solid var(--border);border-radius:var(--r);background:var(--bg);color:var(--text);width:100%;font-family:monospace}
+async def fetch_polymarket(client: httpx.AsyncClient, slug: str) -> Optional[dict]:
+    # Returns probability unless you add conversion logic.
+    data = await get_json(client, "https://gamma-api.polymarket.com/markets", params={"slug": slug})
+    market = data[0] if isinstance(data, list) and data else data
+    if not market:
+        return None
+    price = None
+    if market.get("outcomePrices"):
+        import json
+        prices = json.loads(market["outcomePrices"]) if isinstance(market["outcomePrices"], str) else market["outcomePrices"]
+        price = float(prices[0]) * 100
+    elif market.get("lastTradePrice") is not None:
+        price = float(market["lastTradePrice"]) * 100
+    return {"pm_forecast": round(price, 2), "pm_kind": "probability", "pm_source": "Polymarket", "pm_slug": slug}
 
-.save-msg{font-size:11px;color:var(--green-text);margin-left:8px}
-.ts{font-size:11px;color:var(--text3)}
-code{font-family:monospace;font-size:11px;background:var(--bg3);padding:2px 5px;border-radius:4px}
-a{color:var(--blue-text)}
-</style>
-</head>
-<body>
-<div class="wrap">
+async def fetch_prediction_markets(client: httpx.AsyncClient) -> Dict[str, dict]:
+    out = {}
+    for m in PREDICTION_MARKETS:
+        try:
+            if m["provider"] == "polymarket":
+                row = await fetch_polymarket(client, m["slug"])
+                if row:
+                    out.setdefault(m["key"], {}).update(row)
+        except Exception as e:
+            out.setdefault(m["key"], {})["pm_error"] = str(e)[:80]
+    return out
 
-<div class="hdr">
-  <div>
-    <h1>Economic Indicator Tracker</h1>
-    <div class="hdr-sub">Prediction markets vs formal indicators &mdash; 8 economies &middot; 5 metrics &middot; oil</div>
-  </div>
-  <div class="hdr-right">
-    <span class="ts" id="ts"></span>
-    <button class="btn btn-primary" id="btn-refresh" onclick="refreshAll()">&#8635; Refresh all</button>
-    <button class="btn" id="btn-poly" onclick="refreshSource('poly')">Polymarket</button>
-    <button class="btn" id="btn-kalshi" onclick="refreshSource('kalshi')">Kalshi</button>
-    <button class="btn" id="btn-formal" onclick="refreshSource('formal')">Formal</button>
-    <button class="btn" id="btn-csv" onclick="exportCSV()">&#8595; CSV</button>
-  </div>
-</div>
+def merge(*parts: Dict[str, dict]) -> Dict[str, dict]:
+    out: Dict[str, dict] = {}
+    for part in parts:
+        for k, v in part.items():
+            out.setdefault(k, {}).update(v)
+    return out
 
-<!-- API keys -->
-<details class="keys-panel" id="keys-panel">
-  <summary>&#9881; API keys &amp; settings <span style="font-weight:400;font-size:11px;color:var(--text2)">&mdash; stored in browser memory only</span></summary>
-  <div class="keys-grid">
-    <div class="key-row">
-      <label class="key-label">FRED API key <a href="https://fred.stlouisfed.org/docs/api/api_key.html" target="_blank" style="font-size:10px">get free key ↗</a></label>
-      <input class="key-input" id="k-fred" type="password" placeholder="32-character key" autocomplete="off" onchange="autoSaveKeys()">
-    </div>
-    <div class="key-row">
-      <label class="key-label">EIA API key <a href="https://www.eia.gov/opendata/register.php" target="_blank" style="font-size:10px">get free key ↗</a></label>
-      <input class="key-input" id="k-eia" type="password" placeholder="EIA key" autocomplete="off" onchange="autoSaveKeys()">
-    </div>
-    <div class="key-row">
-      <label class="key-label">Kalshi API key <a href="https://kalshi.com/account/api-keys" target="_blank" style="font-size:10px">get key ↗</a></label>
-      <input class="key-input" id="k-kalshi" type="password" placeholder="Kalshi key (optional)" autocomplete="off" onchange="autoSaveKeys()">
-    </div>
-  </div>
-  <div style="margin-top:10px"><button class="btn btn-primary btn-sm" onclick="saveKeys()">Save keys</button> <span class="save-msg" id="keys-msg"></span></div>
-</details>
-
-<!-- Source status -->
-<div class="sources">
-  <div class="src"><div class="src-name">Polymarket</div><div class="src-st"><span class="dot" id="d-poly"></span><span id="s-poly">idle</span></div></div>
-  <div class="src"><div class="src-name">Kalshi</div><div class="src-st"><span class="dot" id="d-kalshi"></span><span id="s-kalshi">idle</span></div></div>
-  <div class="src"><div class="src-name">FRED</div><div class="src-st"><span class="dot" id="d-fred"></span><span id="s-fred">idle</span></div></div>
-  <div class="src"><div class="src-name">IMF</div><div class="src-st"><span class="dot" id="d-imf"></span><span id="s-imf">idle</span></div></div>
-  <div class="src"><div class="src-name">FX (ECB)</div><div class="src-st"><span class="dot" id="d-fx"></span><span id="s-fx">idle</span></div></div>
-  <div class="src"><div class="src-name">Oil (EIA)</div><div class="src-st"><span class="dot" id="d-oil"></span><span id="s-oil">idle</span></div></div>
-</div>
-
-<!-- Tabs -->
-<div class="tabs">
-  <button class="tab active" onclick="switchTab('overview',event)">Overview</button>
-  <button class="tab" onclick="switchTab('poly',event)">Polymarket</button>
-  <button class="tab" onclick="switchTab('kalshi',event)">Kalshi</button>
-  <button class="tab" onclick="switchTab('formal',event)">Formal</button>
-  <button class="tab" onclick="switchTab('compare',event)">Mkt vs Formal</button>
-  <button class="tab" onclick="switchTab('pmcomp',event)">PM vs Kalshi</button>
-  <button class="tab" onclick="switchTab('oil',event)">Oil</button>
-  <button class="tab" onclick="switchTab('contracts',event)">Contract map</button>
-</div>
-
-<div class="mtabs" id="mtabs">
-  <button class="mtab active" onclick="switchMetric('cb_rate',event)">CB rate</button>
-  <button class="mtab" onclick="switchMetric('inflation',event)">Inflation</button>
-  <button class="mtab" onclick="switchMetric('gdp',event)">GDP growth</button>
-  <button class="mtab" onclick="switchMetric('unemployment',event)">Unemployment</button>
-  <button class="mtab" onclick="switchMetric('fx',event)">FX vs USD</button>
-</div>
-
-<div id="overview" class="section active"><div class="tbl-wrap" id="t-overview"></div></div>
-<div id="poly"     class="section"><div class="tbl-wrap" id="t-poly"></div></div>
-<div id="kalshi"   class="section"><div class="tbl-wrap" id="t-kalshi"></div></div>
-<div id="formal"   class="section"><div class="tbl-wrap" id="t-formal"></div></div>
-<div id="compare"  class="section">
-  <div class="legend">
-    <div class="leg"><div class="leg-dot" style="background:#639922"></div>&lt;0.5pp divergence</div>
-    <div class="leg"><div class="leg-dot" style="background:#ef9f27"></div>0.5&ndash;1.5pp</div>
-    <div class="leg"><div class="leg-dot" style="background:#e24b4a"></div>&gt;1.5pp</div>
-  </div>
-  <div class="tbl-wrap" id="t-compare"></div>
-</div>
-<div id="pmcomp" class="section"><div class="tbl-wrap" id="t-pmcomp"></div></div>
-<div id="oil"    class="section"><div class="tbl-wrap" id="t-oil"></div></div>
-<div id="contracts" class="section">
-  <div class="cmap-section">
-    <h3>Polymarket slugs</h3>
-    <div class="cmap-sub">Find a market on <a href="https://polymarket.com" target="_blank">polymarket.com</a> and copy the slug from the URL — the part after <code>/market/</code>. Leave blank to skip.</div>
-    <div class="cmap-grid" id="poly-cmap"></div>
-  </div>
-  <div class="cmap-section">
-    <h3>Kalshi series tickers</h3>
-    <div class="cmap-sub">Find a series on <a href="https://kalshi.com" target="_blank">kalshi.com</a> and copy the ticker shown on the market page (e.g. <code>KXFEDRATE</code>). Leave blank to skip.</div>
-    <div class="cmap-grid" id="kalshi-cmap"></div>
-  </div>
-  <button class="btn btn-primary" onclick="saveContracts()">Save contract map</button>
-  <span class="save-msg" id="cmap-msg"></span>
-</div>
-
-</div><!-- /wrap -->
-
-<script>
-// ── Constants ──────────────────────────────────────────────
-const ECONOMIES = [
-  {id:'us',flag:'🇺🇸',name:'United States'},
-  {id:'ea',flag:'🇪🇺',name:'Euro Area'},
-  {id:'jp',flag:'🇯🇵',name:'Japan'},
-  {id:'uk',flag:'🇬🇧',name:'United Kingdom'},
-  {id:'cn',flag:'🇨🇳',name:'China'},
-  {id:'in',flag:'🇮🇳',name:'India'},
-  {id:'br',flag:'🇧🇷',name:'Brazil'},
-  {id:'ru',flag:'🇷🇺',name:'Russia'},
-];
-
-const METRICS = {
-  cb_rate:      {label:'CB rate',       unit:'%'},
-  inflation:    {label:'Inflation',     unit:'%'},
-  gdp:          {label:'GDP growth',    unit:'%'},
-  unemployment: {label:'Unemployment',  unit:'%'},
-  fx:           {label:'FX / USD',      unit:''},
-};
-
-// FRED series: direct rate or fred_yoy (index → YoY%)
-const FRED_CFG = {
-  us_cb_rate:      {type:'direct', sid:'FEDFUNDS'},
-  us_inflation:    {type:'yoy',    sid:'CPIAUCSL'},
-  us_gdp:          {type:'direct', sid:'A191RL1Q225SBEA'},
-  us_unemployment: {type:'direct', sid:'UNRATE'},
-  ea_cb_rate:      {type:'direct', sid:'ECBDFR'},
-  ea_unemployment: {type:'direct', sid:'LRHUTTTTEZM156S'},
-  jp_cb_rate:      {type:'direct', sid:'IRSTCB01JPM156N'},
-  jp_unemployment: {type:'direct', sid:'LRHUTTTTJPM156S'},
-  uk_cb_rate:      {type:'direct', sid:'IUDSOIA'},
-  uk_unemployment: {type:'direct', sid:'LRHUTTTTGBM156S'},
-  cn_cb_rate:      {type:'direct', sid:'IRSTCB01CNM156N'},
-  in_cb_rate:      {type:'direct', sid:'IRSTCB01INM156N'},
-  br_cb_rate:      {type:'direct', sid:'IRSTCB01BRM156N'},
-  br_unemployment: {type:'direct', sid:'LRUNTTTTBRQ156S'},
-  ru_cb_rate:      {type:'direct', sid:'IRSTCB01RUM156N'},
-  ru_unemployment: {type:'direct', sid:'LRUNTTTTRUQ156S'},
-};
-
-// IMF DataMapper: inflation + GDP for non-US, unemployment for CN/IN
-const IMF_CFG = [
-  {key:'ea_inflation',    ind:'PCPIPCH', code:'U2'},
-  {key:'ea_gdp',         ind:'NGDP_RPCH',code:'U2'},
-  {key:'jp_inflation',   ind:'PCPIPCH', code:'JPN'},
-  {key:'jp_gdp',         ind:'NGDP_RPCH',code:'JPN'},
-  {key:'uk_inflation',   ind:'PCPIPCH', code:'GBR'},
-  {key:'uk_gdp',         ind:'NGDP_RPCH',code:'GBR'},
-  {key:'cn_inflation',   ind:'PCPIPCH', code:'CHN'},
-  {key:'cn_gdp',         ind:'NGDP_RPCH',code:'CHN'},
-  {key:'cn_unemployment',ind:'LUR',     code:'CHN'},
-  {key:'in_inflation',   ind:'PCPIPCH', code:'IND'},
-  {key:'in_gdp',         ind:'NGDP_RPCH',code:'IND'},
-  {key:'in_unemployment',ind:'LUR',     code:'IND'},
-  {key:'br_inflation',   ind:'PCPIPCH', code:'BRA'},
-  {key:'br_gdp',         ind:'NGDP_RPCH',code:'BRA'},
-  {key:'ru_inflation',   ind:'PCPIPCH', code:'RUS'},
-  {key:'ru_gdp',         ind:'NGDP_RPCH',code:'RUS'},
-];
-
-const FX_MAP = {ea:'EUR',jp:'JPY',uk:'GBP',cn:'CNY',in:'INR',br:'BRL',ru:'RUB'};
-const OIL_KEYS = ['oil_wti','oil_brent'];
-const OIL_LABELS = {oil_wti:'WTI Crude Oil',oil_brent:'Brent Crude Oil'};
-const TIMEOUT = 12000;
-
-// ── State ──────────────────────────────────────────────────
-let liveData  = {};   // key -> {poly, kalshi, formal}
-let manualData = {};  // key_src -> value
-let contracts  = {poly:{}, kalshi:{}};
-let keys       = {fred:'', eia:'', kalshi:''};
-let currentTab    = 'overview';
-let currentMetric = 'cb_rate';
-
-// Load persisted state
-(function(){
-  try {
-    const s = localStorage.getItem('econ_v3');
-    if (s) {
-      const p = JSON.parse(s);
-      if (p.liveData)   liveData   = p.liveData;
-      if (p.manualData) manualData = p.manualData;
-      if (p.contracts)  contracts  = p.contracts;
-      if (p.keys)       keys       = p.keys;
+@app.get("/api/live")
+async def live(force: bool = False):
+    now = time.time()
+    if not force and cache["data"] and now - cache["ts"] < CACHE_TTL:
+        return cache["data"]
+    async with httpx.AsyncClient(headers={"User-Agent":"macro-dashboard/1.0"}) as client:
+        fred, imf, fx, eia, pm = await asyncio.gather(
+            fetch_fred(client), fetch_imf(client), fetch_fx(client), fetch_eia_oil(client), fetch_prediction_markets(client)
+        )
+    rows = merge(fred, imf, fx, eia, pm)
+    payload = {
+        "generated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "economies": ECONOMIES,
+        "metrics": METRICS,
+        "rows": rows,
+        "notes": [
+            "Official indicators are live server-side pulls.",
+            "Prediction-market rows require contract mapping in backend/main.py.",
+            "Probability markets should be converted to expected values before direct comparison to official levels."
+        ]
     }
-  } catch(_) {}
-})();
+    cache["ts"], cache["data"] = now, payload
+    return payload
 
-function persist() {
-  try { localStorage.setItem('econ_v3', JSON.stringify({liveData, manualData, contracts, keys})); } catch(_) {}
-}
-
-// ── Boot ───────────────────────────────────────────────────
-window.addEventListener('DOMContentLoaded', () => {
-  // Restore keys into input fields
-  document.getElementById('k-fred').value   = keys.fred   || '';
-  document.getElementById('k-eia').value    = keys.eia    || '';
-  document.getElementById('k-kalshi').value = keys.kalshi || '';
-
-  // Collapse keys panel if keys already saved
-  if (keys.fred || keys.eia) document.getElementById('keys-panel').removeAttribute('open');
-
-  // Show cached data immediately without fetching
-  renderAll();
-
-  // Update source status cards to reflect cached data
-  const hasPoly   = Object.values(liveData).some(d => d.poly   !== undefined);
-  const hasKalshi = Object.values(liveData).some(d => d.kalshi !== undefined);
-  const hasFred   = Object.values(liveData).some(d => d.formal !== undefined);
-  const hasOil    = liveData['oil_wti']?.formal || liveData['oil_brent']?.formal;
-  const hasFX     = liveData['us_fx']?.formal;
-
-  if (hasPoly)   setSrc('poly',   'ok', 'cached');
-  if (hasKalshi) setSrc('kalshi', 'ok', 'cached');
-  if (hasFred)   setSrc('fred',   'ok', 'cached');
-  if (hasFred)   setSrc('imf',    'ok', 'cached');
-  if (hasFX)     setSrc('fx',     'ok', 'cached');
-  if (hasOil)    setSrc('oil',    'ok', 'cached');
-
-  document.getElementById('ts').textContent = 'Showing cached data — click Refresh to update';
-});
-
-// ── Key management ─────────────────────────────────────────
-function saveKeys() {
-  keys.fred   = document.getElementById('k-fred').value.trim();
-  keys.eia    = document.getElementById('k-eia').value.trim();
-  keys.kalshi = document.getElementById('k-kalshi').value.trim();
-  persist();
-  const m = document.getElementById('keys-msg');
-  m.textContent = 'Saved ✓';
-  setTimeout(() => { m.textContent = ''; }, 2000);
-}
-
-// Also save keys whenever input changes so they're never lost
-function autoSaveKeys() {
-  keys.fred   = document.getElementById('k-fred').value.trim();
-  keys.eia    = document.getElementById('k-eia').value.trim();
-  keys.kalshi = document.getElementById('k-kalshi').value.trim();
-  persist();
-}
-
-// ── Source status helpers ──────────────────────────────────
-function setSrc(id, state, msg) {
-  const d = document.getElementById('d-'+id);
-  const s = document.getElementById('s-'+id);
-  if (!d) return;
-  d.className = 'dot' + (state==='ok'?' ok':state==='err'?' err':state==='load'?' loading':'');
-  s.textContent = msg;
-}
-
-// ── Fetch helpers ──────────────────────────────────────────
-function withTimeout(p, ms) {
-  return Promise.race([p, new Promise((_,r) => setTimeout(() => r(new Error('timeout')), ms))]);
-}
-
-async function fetchJSON(url, opts) {
-  const r = await withTimeout(fetch(url, opts || {}), TIMEOUT);
-  if (!r.ok) throw new Error('HTTP ' + r.status);
-  return r.json();
-}
-
-// ── Fetchers ───────────────────────────────────────────────
-
-async function fetchPolymarket() {
-  setSrc('poly','load','fetching…');
-  const slugs = Object.entries(contracts.poly).filter(([,v]) => v);
-  if (!slugs.length) { setSrc('poly','err','no contracts mapped'); return; }
-  let ok = 0, fail = 0;
-  await Promise.all(slugs.map(async ([key, slug]) => {
-    try {
-      // Try markets endpoint first, then events endpoint (for multi-outcome events)
-      let price = null;
-      const mktData = await fetchJSON('https://gamma-api.polymarket.com/markets?slug=' + encodeURIComponent(slug));
-      const mkt = Array.isArray(mktData) ? mktData[0] : mktData;
-      if (mkt) {
-        if (mkt.outcomePrices) { try { price = JSON.parse(mkt.outcomePrices)[0]; } catch(_) {} }
-        if (price === null && mkt.lastTradePrice) price = mkt.lastTradePrice;
-      }
-      if (price === null) {
-        const evtData = await fetchJSON('https://gamma-api.polymarket.com/events?slug=' + encodeURIComponent(slug));
-        const evt = Array.isArray(evtData) ? evtData[0] : evtData;
-        if (evt && evt.markets && evt.markets.length) {
-          // Find the outcome with the highest probability
-          let bestPrice = -1, bestLabel = null;
-          evt.markets.forEach(m => {
-            let p = null;
-            if (m.outcomePrices) { try { p = parseFloat(JSON.parse(m.outcomePrices)[0]); } catch(_) {} }
-            if (p === null && m.lastTradePrice) p = parseFloat(m.lastTradePrice);
-            if (p !== null && p > bestPrice) {
-              bestPrice = p;
-              bestLabel = m.groupItemTitle || m.question || m.outcomes || null;
-            }
-          });
-          if (bestLabel !== null) {
-            if (!liveData[key]) liveData[key] = {};
-            liveData[key].poly = bestLabel + ' (' + (bestPrice * 100).toFixed(0) + '%)';
-            ok++;
-            return;
-          }
-          price = bestPrice >= 0 ? bestPrice : null;
-        }
-      }
-      if (price === null) throw new Error('no price');
-      if (!liveData[key]) liveData[key] = {};
-      liveData[key].poly = (parseFloat(price) * 100).toFixed(2);
-      ok++;
-    } catch(_) { fail++; }
-  }));
-  setSrc('poly', ok>0?'ok':'err', ok>0 ? ok+' markets' + (fail?' ('+fail+' failed)':'') : 'all failed');
-}
-
-async function fetchKalshi() {
-  setSrc('kalshi','load','fetching…');
-  const tickers = Object.entries(contracts.kalshi).filter(([,v]) => v);
-  if (!tickers.length) { setSrc('kalshi','err','no tickers mapped'); return; }
-  const headers = keys.kalshi ? {'Authorization':'Bearer '+keys.kalshi} : {};
-  let ok = 0, fail = 0;
-  await Promise.all(tickers.map(async ([key, ticker]) => {
-    try {
-      const data = await fetchJSON(
-        'https://external-api.kalshi.com/trade-api/v2/markets?series_ticker=' + encodeURIComponent(ticker) + '&status=open&limit=1',
-        {headers}
-      );
-      const mkts = data.markets || [];
-      if (!mkts.length) throw new Error('no markets');
-      const mkt = mkts[0];
-      const mid = ((mkt.yes_bid + mkt.yes_ask) / 2 / 100);
-      if (!liveData[key]) liveData[key] = {};
-      liveData[key].kalshi = (mid * 100).toFixed(2);
-      ok++;
-    } catch(_) { fail++; }
-  }));
-  setSrc('kalshi', ok>0?'ok':'err', ok>0 ? ok+' markets' + (fail?' ('+fail+' failed)':'') : 'all failed');
-}
-
-async function fetchFRED() {
-  setSrc('fred','load','fetching…');
-  if (!keys.fred) { setSrc('fred','err','no API key'); return; }
-  // Try multiple CORS proxies in sequence
-  const PROXIES = [
-    url => 'https://corsproxy.io/?url=' + encodeURIComponent(url),
-    url => 'https://api.allorigins.win/get?url=' + encodeURIComponent(url),
-    url => 'https://proxy.cors.sh/' + url,
-  ];
-
-  async function fetchViaProxy(url) {
-    for (const makeUrl of PROXIES) {
-      try {
-        const proxyUrl = makeUrl(url);
-        const r = await withTimeout(fetch(proxyUrl), TIMEOUT);
-        if (!r.ok) continue;
-        const d = await r.json();
-        // allorigins wraps in {contents:...}, others return directly
-        return d.contents ? JSON.parse(d.contents) : d;
-      } catch(_) { continue; }
-    }
-    throw new Error('all proxies failed');
-  }
-
-  const base  = 'https://api.stlouisfed.org/fred/series/observations';
-  const entries = Object.entries(FRED_CFG);
-  let ok = 0, fail = 0;
-  await Promise.all(entries.map(async ([key, cfg]) => {
-    try {
-      const limit = cfg.type === 'yoy' ? 14 : 2;
-      const fredUrl = base + '?series_id=' + cfg.sid + '&api_key=' + keys.fred +
-                      '&file_type=json&sort_order=desc&limit=' + limit;
-      const inner = await fetchViaProxy(fredUrl);
-      const obs = (inner.observations || []).filter(o => o.value !== '.' && o.value !== '');
-      if (!obs.length) throw new Error('no obs');
-      let value;
-      if (cfg.type === 'yoy' && obs.length >= 13) {
-        const latest  = parseFloat(obs[0].value);
-        const yearAgo = parseFloat(obs[12].value);
-        value = ((latest - yearAgo) / yearAgo * 100).toFixed(2);
-      } else {
-        value = parseFloat(obs[0].value).toFixed(2);
-      }
-      if (!liveData[key]) liveData[key] = {};
-      liveData[key].formal = value;
-      ok++;
-    } catch(_) { fail++; }
-  }));
-  setSrc('fred', ok>0?'ok':'err', ok>0 ? ok+' series' + (fail?' ('+fail+' failed)':'') : 'all failed');
-}
-
-async function fetchIMF() {
-  setSrc('imf','load','fetching…');
-  // Group by indicator to minimise API calls
-  const byIndicator = {};
-  IMF_CFG.forEach(cfg => {
-    if (!byIndicator[cfg.ind]) byIndicator[cfg.ind] = [];
-    byIndicator[cfg.ind].push(cfg);
-  });
-  let ok = 0, fail = 0;
-  await Promise.all(Object.entries(byIndicator).map(async ([ind, cfgs]) => {
-    try {
-      const data = await fetchViaProxy('https://www.imf.org/external/datamapper/api/v1/' + ind);
-      const values = (data.values || {})[ind] || {};
-      cfgs.forEach(cfg => {
-        const country = values[cfg.code] || {};
-        let val = null;
-        for (const yr of ['2025','2024','2023']) {
-          if (country[yr] !== undefined && country[yr] !== null) { val = country[yr]; break; }
-        }
-        if (val !== null) {
-          if (!liveData[cfg.key]) liveData[cfg.key] = {};
-          liveData[cfg.key].formal = parseFloat(val).toFixed(2);
-          ok++;
-        } else { fail++; }
-      });
-    } catch(_) { fail += cfgs.length; }
-  }));
-  setSrc('imf', ok>0?'ok':'err', ok>0 ? ok+' series' + (fail?' ('+fail+' missing)':'') : 'all failed');
-}
-
-async function fetchFX() {
-  setSrc('fx','load','fetching…');
-  try {
-    const codes = Object.values(FX_MAP).join(',');
-    const data  = await fetchJSON('https://api.frankfurter.app/latest?from=USD&to=' + codes);
-    const rates = data.rates || {};
-    Object.entries(FX_MAP).forEach(([eId, code]) => {
-      if (rates[code]) {
-        const key = eId + '_fx';
-        if (!liveData[key]) liveData[key] = {};
-        liveData[key].formal = parseFloat(rates[code]).toFixed(4);
-      }
-    });
-    const usKey = 'us_fx';
-    if (!liveData[usKey]) liveData[usKey] = {};
-    liveData[usKey].formal = '1.0000';
-    setSrc('fx','ok', Object.keys(FX_MAP).length + 1 + ' rates');
-  } catch(e) {
-    setSrc('fx','err', e.message.substring(0,24));
-  }
-}
-
-async function fetchOil() {
-  setSrc('oil','load','fetching…');
-  if (!keys.eia) { setSrc('oil','err','no EIA key'); return; }
-  const series = {oil_wti:'PET.RWTC.D', oil_brent:'PET.RBRTE.D'};
-  let ok = 0;
-  await Promise.all(Object.entries(series).map(async ([key, sid]) => {
-    try {
-      const url  = 'https://api.eia.gov/v2/seriesid/' + sid +
-                   '?api_key=' + keys.eia + '&data[]=value&sort[0][column]=period&sort[0][direction]=desc&length=1&out=json';
-      const data = await fetchJSON(url);
-      const rows = ((data.response || {}).data) || [];
-      if (!rows.length) throw new Error('no data');
-      if (!liveData[key]) liveData[key] = {};
-      liveData[key].formal = parseFloat(rows[0].value).toFixed(2);
-      ok++;
-    } catch(_) {}
-  }));
-  setSrc('oil', ok>0?'ok':'err', ok>0 ? ok+' prices' : 'failed');
-}
-
-// ── Refresh orchestration ──────────────────────────────────
-const ALL_BTNS = ['btn-refresh'];
-
-function setRefreshing(v) {
-  const ids = ['btn-refresh','btn-poly','btn-kalshi','btn-formal','btn-csv'];
-  ids.forEach(id => { const b = document.getElementById(id); if(b) b.disabled = v; });
-}
-
-async function refreshAll() {
-  setRefreshing(true);
-  document.getElementById('btn-refresh').textContent = '↻ Refreshing…';
-  try {
-    await Promise.all([fetchPolymarket(), fetchKalshi(), fetchFRED(), fetchIMF(), fetchFX(), fetchOil()]);
-    persist();
-    document.getElementById('ts').textContent = 'Updated ' + new Date().toLocaleTimeString();
-  } finally {
-    document.getElementById('btn-refresh').textContent = '↻ Refresh all';
-    setRefreshing(false);
-    renderAll();
-  }
-}
-
-async function refreshSource(src) {
-  setRefreshing(true);
-  try {
-    if (src === 'poly')   await fetchPolymarket();
-    if (src === 'kalshi') await fetchKalshi();
-    if (src === 'formal') await Promise.all([fetchFRED(), fetchIMF(), fetchFX(), fetchOil()]);
-    persist();
-  } finally {
-    setRefreshing(false);
-    renderAll();
-  }
-}
-
-// ── Data accessors ─────────────────────────────────────────
-function getV(key, src) {
-  const d   = liveData[key]  || {};
-  const man = manualData[key + '_' + src];
-  const live = d[src];
-  return (live !== undefined && live !== null) ? live : (man !== undefined ? man : null);
-}
-
-function setManual(key, src, raw) {
-  const v = raw.trim();
-  manualData[key + '_' + src] = (v === '' || v === '—') ? null : v;
-  persist(); renderAll();
-}
-
-// ── Tab / metric switching ─────────────────────────────────
-function switchTab(t, e) {
-  document.querySelectorAll('.tab').forEach(b => b.classList.remove('active'));
-  document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
-  if (e) e.target.classList.add('active');
-  document.getElementById(t).classList.add('active');
-  currentTab = t;
-  const showM = ['overview','poly','kalshi','formal','compare','pmcomp'].includes(t);
-  document.getElementById('mtabs').style.display = showM ? 'flex' : 'none';
-  renderAll();
-}
-
-function switchMetric(m, e) {
-  document.querySelectorAll('.mtab').forEach(b => b.classList.remove('active'));
-  if (e) e.target.classList.add('active');
-  currentMetric = m; renderAll();
-}
-
-// ── Render helpers ─────────────────────────────────────────
-function mkTable(headers, rows) {
-  return '<table><thead><tr>' + headers.map(h => `<th>${h}</th>`).join('') + '</tr></thead><tbody>' +
-    rows.map(r => '<tr>' + r.map(c => `<td>${c}</td>`).join('') + '</tr>').join('') +
-    '</tbody></table>';
-}
-
-function ecoCell(e) {
-  return `<span class="fw">${e.flag}&nbsp;${e.name}</span>`;
-}
-
-function valCell(key, src, unit) {
-  const v = getV(key, src);
-  if (v === null) {
-    return `<span contenteditable="true" class="editable blank"
-      onblur="setManual('${key}','${src}',this.textContent)"
-      onkeydown="if(event.key==='Enter'){event.preventDefault();this.blur()}">—</span>`;
-  }
-  const n = parseFloat(v);
-  return `<span class="num">${isNaN(n) ? v : n.toFixed(2)}${unit ? '&thinsp;' + unit : ''}</span><span class="badge b-live">live</span>`;
-}
-
-function diffCell(a, b) {
-  const an = parseFloat(a), bn = parseFloat(b);
-  if (isNaN(an) || isNaN(bn)) return '—';
-  const d = an - bn, abs = Math.abs(d);
-  const cls = abs < 0.5 ? 'dhi' : abs < 1.5 ? 'dmd' : 'dlo';
-  return `<span class="dpill ${cls}">${d > 0 ? '+' : ''}${d.toFixed(2)}pp</span>`;
-}
-
-function fmtVal(v, unit) {
-  if (v === null || v === undefined) return '<span class="blank">—</span>';
-  const n = parseFloat(v);
-  return `<span class="num">${isNaN(n) ? v : n.toFixed(2)}${unit ? '&thinsp;' + unit : ''}</span>`;
-}
-
-// ── Render tabs ────────────────────────────────────────────
-function renderOverview() {
-  const m = currentMetric, unit = METRICS[m].unit;
-  const rows = ECONOMIES.map(e => {
-    const key = e.id + '_' + m;
-    const pv = getV(key,'poly'), kv = getV(key,'kalshi'), fv = getV(key,'formal');
-    const pn = parseFloat(pv), kn = parseFloat(kv);
-    const avg = (!isNaN(pn) && !isNaN(kn)) ? ((pn+kn)/2).toFixed(2) : (!isNaN(pn)?pv:(!isNaN(kn)?kv:null));
-    return [
-      ecoCell(e),
-      fmtVal(pv, unit),
-      fmtVal(kv, unit),
-      avg !== null ? `<strong>${parseFloat(avg).toFixed(2)}${unit ? '&thinsp;' + unit : ''}</strong>` : '<span class="blank">—</span>',
-      fmtVal(fv, unit),
-      diffCell(avg, fv),
-    ];
-  });
-  document.getElementById('t-overview').innerHTML = mkTable(['Economy','Polymarket','Kalshi','Mkt avg','Formal','Divergence'], rows);
-}
-
-function renderPolyTab() {
-  const m = currentMetric, unit = METRICS[m].unit;
-  const rows = ECONOMIES.map(e => {
-    const key = e.id + '_' + m;
-    const slug = (contracts.poly || {})[key] || '';
-    return [
-      ecoCell(e),
-      valCell(key, 'poly', unit),
-      slug ? `<a href="https://polymarket.com/market/${slug}" target="_blank" style="font-size:11px;font-family:monospace">${slug.length>44?slug.slice(0,44)+'…':slug}</a>`
-           : '<span class="blank" style="font-size:11px">no contract — click — to enter manually</span>',
-    ];
-  });
-  document.getElementById('t-poly').innerHTML = mkTable(['Economy','Value (click — to edit)','Contract slug'], rows);
-}
-
-function renderKalshiTab() {
-  const m = currentMetric, unit = METRICS[m].unit;
-  const rows = ECONOMIES.map(e => {
-    const key = e.id + '_' + m;
-    const ticker = (contracts.kalshi || {})[key] || '';
-    return [
-      ecoCell(e),
-      valCell(key, 'kalshi', unit),
-      ticker ? `<code>${ticker}</code>` : '<span class="blank" style="font-size:11px">no ticker</span>',
-    ];
-  });
-  document.getElementById('t-kalshi').innerHTML = mkTable(['Economy','Value (click — to edit)','Kalshi ticker'], rows);
-}
-
-function renderFormalTab() {
-  const m = currentMetric, unit = METRICS[m].unit;
-  const rows = ECONOMIES.map(e => {
-    const key = e.id + '_' + m;
-    const src = m === 'fx' ? 'ECB/Frankfurter' : ['cb_rate','unemployment'].includes(m) ? 'FRED' : m === 'gdp' || m === 'inflation' ? (e.id === 'us' ? 'FRED' : 'IMF') : 'FRED/IMF';
-    return [ecoCell(e), valCell(key, 'formal', unit), src];
-  });
-  document.getElementById('t-formal').innerHTML = mkTable(['Economy','Value (click — to edit)','Source'], rows);
-}
-
-function renderCompareTab() {
-  const m = currentMetric, unit = METRICS[m].unit;
-  const rows = ECONOMIES.map(e => {
-    const key = e.id + '_' + m;
-    const pv = getV(key,'poly'), kv = getV(key,'kalshi'), fv = getV(key,'formal');
-    const pn = parseFloat(pv), kn = parseFloat(kv);
-    const avg = (!isNaN(pn)&&!isNaN(kn))?((pn+kn)/2).toFixed(2):(!isNaN(pn)?pv:(!isNaN(kn)?kv:null));
-    return [
-      ecoCell(e),
-      fmtVal(pv, unit),
-      fmtVal(kv, unit),
-      avg !== null ? `<strong>${parseFloat(avg).toFixed(2)}${unit?'&thinsp;'+unit:''}</strong>` : '<span class="blank">—</span>',
-      fmtVal(fv, unit),
-      diffCell(avg, fv),
-    ];
-  });
-  document.getElementById('t-compare').innerHTML = mkTable(['Economy','Polymarket','Kalshi','Mkt avg','Formal','Divergence'], rows);
-}
-
-function renderPMCompTab() {
-  const m = currentMetric, unit = METRICS[m].unit;
-  const rows = ECONOMIES.map(e => {
-    const key = e.id + '_' + m;
-    const pv = getV(key,'poly'), kv = getV(key,'kalshi');
-    const pn = parseFloat(pv), kn = parseFloat(kv);
-    const diff = (!isNaN(pn)&&!isNaN(kn)) ? pn-kn : null;
-    const abs  = diff !== null ? Math.abs(diff) : null;
-    const cls  = diff===null?'':(abs<0.3?'dhi':abs<0.8?'dmd':'dlo');
-    const larger = diff===null?'—':diff>0?'Polymarket':diff<0?'Kalshi':'Equal';
-    return [
-      ecoCell(e),
-      fmtVal(pv, unit),
-      fmtVal(kv, unit),
-      diff !== null ? `<span class="dpill ${cls}">${diff>0?'+':''}${diff.toFixed(2)}pp</span>` : '—',
-      larger,
-    ];
-  });
-  document.getElementById('t-pmcomp').innerHTML = mkTable(['Economy','Polymarket','Kalshi','Spread (PM−K)','Higher'], rows);
-}
-
-function renderOilTab() {
-  const rows = OIL_KEYS.map(key => {
-    const pv = getV(key,'poly'), fv = getV(key,'formal');
-    const slug = (contracts.poly||{})[key]||'';
-    return [
-      `<span class="fw">${OIL_LABELS[key]}</span>`,
-      valCell(key, 'poly', ''),
-      fv !== null ? `<span class="num">$${parseFloat(fv).toFixed(2)}/bbl</span><span class="badge b-live">live</span>` : valCell(key,'formal',''),
-      diffCell(pv, fv),
-      slug ? `<a href="https://polymarket.com/market/${slug}" target="_blank" style="font-size:11px;font-family:monospace">${slug.length>36?slug.slice(0,36)+'…':slug}</a>`
-           : '<span class="blank" style="font-size:11px">—</span>',
-    ];
-  });
-  document.getElementById('t-oil').innerHTML = mkTable(['Commodity','Polymarket implied','Spot price (EIA)','Divergence','Contract slug'], rows);
-}
-
-function renderContractMap() {
-  const allKeys = [
-    ...ECONOMIES.flatMap(e => Object.keys(METRICS).map(m => ({key:e.id+'_'+m, label:e.flag+' '+e.name+' — '+METRICS[m].label}))),
-    {key:'oil_wti',   label:'🛢 WTI Crude Oil'},
-    {key:'oil_brent', label:'🛢 Brent Crude Oil'},
-  ];
-
-  let ph = '<div class="cmap-grid">';
-  allKeys.forEach(({key, label}) => {
-    const v = (contracts.poly||{})[key]||'';
-    ph += `<div class="cmap-row"><label>${label}</label><input class="cmap-input" id="pc_${key}" value="${v}" placeholder="polymarket-slug"></div>`;
-  });
-  ph += '</div>';
-  document.getElementById('poly-cmap').innerHTML = ph;
-
-  let kh = '<div class="cmap-grid">';
-  allKeys.forEach(({key, label}) => {
-    const v = (contracts.kalshi||{})[key]||'';
-    kh += `<div class="cmap-row"><label>${label}</label><input class="cmap-input" id="kc_${key}" value="${v}" placeholder="SERIES-TICKER"></div>`;
-  });
-  kh += '</div>';
-  document.getElementById('kalshi-cmap').innerHTML = kh;
-}
-
-function saveContracts() {
-  const allKeys = [
-    ...ECONOMIES.flatMap(e => Object.keys(METRICS).map(m => e.id+'_'+m)),
-    'oil_wti','oil_brent',
-  ];
-  if (!contracts.poly)   contracts.poly   = {};
-  if (!contracts.kalshi) contracts.kalshi = {};
-  allKeys.forEach(key => {
-    const pi = document.getElementById('pc_'+key);
-    const ki = document.getElementById('kc_'+key);
-    if (pi) contracts.poly[key]   = pi.value.trim();
-    if (ki) contracts.kalshi[key] = ki.value.trim();
-  });
-  persist();
-  const m = document.getElementById('cmap-msg');
-  m.textContent = 'Saved ✓';
-  setTimeout(() => { m.textContent = ''; }, 2000);
-}
-
-function renderAll() {
-  renderOverview(); renderPolyTab(); renderKalshiTab(); renderFormalTab();
-  renderCompareTab(); renderPMCompTab(); renderOilTab(); renderContractMap();
-}
-
-function exportCSV() {
-  const m = currentMetric, unit = METRICS[m].unit;
-  let csv = 'Economy,Polymarket,Kalshi,Mkt avg,Formal,Divergence\n';
-  ECONOMIES.forEach(e => {
-    const key = e.id+'_'+m;
-    const pv=getV(key,'poly'), kv=getV(key,'kalshi'), fv=getV(key,'formal');
-    const pn=parseFloat(pv), kn=parseFloat(kv), fn=parseFloat(fv);
-    const avg=(!isNaN(pn)&&!isNaN(kn))?((pn+kn)/2).toFixed(2):'';
-    const div=(avg!==''&&!isNaN(fn))?(parseFloat(avg)-fn).toFixed(2):'';
-    csv += `${e.name},${pv||''},${kv||''},${avg},${fv||''},${div}\n`;
-  });
-  const a = document.createElement('a');
-  a.href = 'data:text/csv;charset=utf-8,' + encodeURIComponent(csv);
-  a.download = `econ_${m}_${new Date().toISOString().slice(0,10)}.csv`;
-  a.click();
-}
-
-renderAll();
-</script>
-</body>
-</html>
+@app.get("/")
+async def root():
+    return {"ok": True, "endpoint": "/api/live"}
+    
