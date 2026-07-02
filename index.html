@@ -1,63 +1,383 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <title>US Macro Forecast Dashboard</title>
-  <style>
-    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; margin: 40px; color: #111; }
-    h1 { margin-bottom: 4px; }
-    .sub { color: #666; margin-bottom: 24px; }
-    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; }
-    .card { border: 1px solid #ddd; border-radius: 14px; padding: 18px; }
-    .metric { font-size: 20px; font-weight: 700; margin-bottom: 12px; }
-    .row { display: flex; justify-content: space-between; border-top: 1px solid #eee; padding: 10px 0; }
-    .row:first-of-type { border-top: none; }
-    .label { color: #666; }
-    .value { font-weight: 650; }
-    .note { margin-top: 28px; color: #666; font-size: 14px; }
-  </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Macro Prediction Market Tracker</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#ffffff;--bg2:#f7f6f3;--bg3:#eeede8;
+  --text:#1a1a18;--text2:#5f5e5a;--text3:#9b9a95;
+  --border:rgba(0,0,0,0.08);--border2:rgba(0,0,0,0.16);
+  --blue-bg:#e6f1fb;--blue-text:#185fa5;--blue-border:#b5d4f4;
+  --green-bg:#eaf3de;--green-text:#3b6d11;
+  --amber-bg:#faeeda;--amber-text:#854f0b;
+  --red-bg:#fcebeb;--red-text:#a32d2d;
+  --r:8px;--rl:12px;
+}
+@media(prefers-color-scheme:dark){:root{
+  --bg:#1c1c1a;--bg2:#252523;--bg3:#2e2e2b;
+  --text:#e8e7e1;--text2:#a8a79f;--text3:#6b6a64;
+  --border:rgba(255,255,255,0.07);--border2:rgba(255,255,255,0.16);
+  --blue-bg:#0c3052;--blue-text:#85b7eb;--blue-border:#185fa5;
+  --green-bg:#173404;--green-text:#97c459;
+  --amber-bg:#412402;--amber-text:#fac775;
+  --red-bg:#501313;--red-text:#f09595;
+}}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:14px;color:var(--text);background:var(--bg);line-height:1.5}
+.wrap{max-width:1100px;margin:0 auto;padding:1.5rem 1rem}
+
+/* header */
+.hdr{display:flex;align-items:flex-start;justify-content:space-between;gap:1rem;flex-wrap:wrap;margin-bottom:1.5rem}
+h1{font-size:20px;font-weight:600;letter-spacing:-.01em}
+.hdr-sub{font-size:12px;color:var(--text2);margin-top:3px}
+.hdr-right{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.ts{font-size:11px;color:var(--text3)}
+
+/* buttons */
+.btn{display:inline-flex;align-items:center;gap:5px;padding:6px 14px;font-size:12px;border:0.5px solid var(--border2);border-radius:var(--r);background:var(--bg);cursor:pointer;color:var(--text);font-family:inherit}
+.btn:hover{background:var(--bg2)}.btn:disabled{opacity:.4;cursor:not-allowed}
+.btn-primary{background:var(--blue-bg);border-color:var(--blue-border);color:var(--blue-text)}
+.btn-primary:hover{opacity:.85}
+
+/* status row */
+.status-row{display:flex;gap:8px;align-items:center;margin-bottom:1.25rem;flex-wrap:wrap}
+.status-pill{display:flex;align-items:center;gap:5px;font-size:11px;color:var(--text2);background:var(--bg2);border:0.5px solid var(--border);border-radius:20px;padding:3px 10px}
+.dot{width:6px;height:6px;border-radius:50%;background:var(--border2)}
+.dot-ok{background:#639922}.dot-err{background:#e24b4a}
+.dot-load{background:#ef9f27;animation:pulse .9s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+
+/* section cards */
+.section-card{border:0.5px solid var(--border);border-radius:var(--rl);margin-bottom:1.25rem;overflow:hidden}
+.section-head{background:var(--bg2);padding:10px 16px;display:flex;align-items:center;justify-content:space-between;border-bottom:0.5px solid var(--border)}
+.section-title{font-size:13px;font-weight:500;display:flex;align-items:center;gap:8px}
+.section-sub{font-size:11px;color:var(--text2)}
+.flag{font-size:15px}
+
+/* table */
+table{width:100%;border-collapse:collapse}
+th{padding:7px 14px;text-align:left;font-size:11px;font-weight:500;color:var(--text2);border-bottom:0.5px solid var(--border);white-space:nowrap;text-transform:uppercase;letter-spacing:.04em;background:var(--bg2)}
+td{padding:9px 14px;border-bottom:0.5px solid var(--border);font-size:13px;vertical-align:middle}
+tr:last-child td{border-bottom:none}
+tr:hover td{background:var(--bg2)}
+.mkt-name{font-weight:500;line-height:1.3}
+.mkt-sub{font-size:11px;color:var(--text2);margin-top:1px}
+.num{font-variant-numeric:tabular-nums;font-size:14px;font-weight:500}
+.dim{color:var(--text3);font-size:12px}
+
+/* outcome display */
+.outcome-block{display:flex;flex-direction:column;gap:3px}
+.outcome-top{display:flex;align-items:center;gap:8px}
+.outcome-label{font-size:12px;color:var(--text2)}
+.prob-bar-wrap{height:4px;background:var(--border);border-radius:2px;width:80px;flex-shrink:0}
+.prob-bar{height:100%;border-radius:2px;background:#378ADD;transition:width .4s}
+.vol-badge{font-size:10px;color:var(--text3);background:var(--bg3);padding:1px 6px;border-radius:8px;white-space:nowrap}
+.liq-low{color:var(--amber-text);background:var(--amber-bg)}
+.liq-ok{color:var(--green-text);background:var(--green-bg)}
+
+/* link */
+a.mkt-link{color:var(--blue-text);font-size:11px;text-decoration:none}
+a.mkt-link:hover{text-decoration:underline}
+
+/* loading skeleton */
+.skel{display:inline-block;background:var(--bg3);border-radius:4px;animation:shimmer 1.2s infinite}
+@keyframes shimmer{0%,100%{opacity:.6}50%{opacity:1}}
+
+/* section tabs */
+.stabs{display:flex;gap:4px;padding:10px 14px;border-bottom:0.5px solid var(--border);flex-wrap:wrap}
+.stab{padding:3px 10px;font-size:12px;border:0.5px solid transparent;border-radius:20px;cursor:pointer;background:transparent;color:var(--text2);font-family:inherit}
+.stab:hover{background:var(--bg2)}
+.stab.active{background:var(--blue-bg);color:var(--blue-text);border-color:var(--blue-border)}
+.tab-panel{display:none}.tab-panel.active{display:block}
+</style>
 </head>
 <body>
-  <h1>US Macro Forecast Dashboard</h1>
-  <div class="sub">Prediction markets vs official economic indicators</div>
+<div class="wrap">
 
-  <div class="grid" id="dashboard"></div>
-
-  <div class="note">
-    Data loads from <code>data.json</code>. GitHub Actions will update it automatically later.
+<div class="hdr">
+  <div>
+    <h1>Macro Prediction Market Tracker</h1>
+    <div class="hdr-sub">US · Euro Area · Japan &nbsp;|&nbsp; Central bank rates · Inflation · GDP &nbsp;|&nbsp; Polymarket only</div>
   </div>
+  <div class="hdr-right">
+    <span class="ts" id="ts">—</span>
+    <button class="btn btn-primary" id="btn-refresh" onclick="refreshAll()">&#8635; Refresh</button>
+    <button class="btn" onclick="exportCSV()">&#8595; CSV</button>
+  </div>
+</div>
 
-  <script>
-    async function loadData() {
-      const res = await fetch("data.json");
-      const data = await res.json();
+<div class="status-row">
+  <span class="status-pill"><span class="dot" id="d-poly"></span><span id="s-poly">idle</span></span>
+  <span class="ts" id="fetch-detail"></span>
+</div>
 
-      const dashboard = document.getElementById("dashboard");
+<!-- US -->
+<div class="section-card">
+  <div class="section-head">
+    <div class="section-title"><span class="flag">🇺🇸</span> United States</div>
+    <div class="stabs">
+      <button class="stab active" onclick="switchTab('us','rates',event)">CB Rates</button>
+      <button class="stab" onclick="switchTab('us','inflation',event)">Inflation</button>
+      <button class="stab" onclick="switchTab('us','gdp',event)">GDP</button>
+    </div>
+  </div>
+  <div id="us-rates" class="tab-panel active"><table id="tbl-us-rates"><tbody><tr><td class="dim">Loading…</td></tr></tbody></table></div>
+  <div id="us-inflation" class="tab-panel"><table id="tbl-us-inflation"><tbody></tbody></table></div>
+  <div id="us-gdp" class="tab-panel"><table id="tbl-us-gdp"><tbody></tbody></table></div>
+</div>
 
-      dashboard.innerHTML = data.metrics.map(m => `
-        <div class="card">
-          <div class="metric">${m.name}</div>
-          <div class="row">
-            <span class="label">Official latest</span>
-            <span class="value">${m.official ?? "—"}</span>
-          </div>
-          <div class="row">
-            <span class="label">Prediction market</span>
-            <span class="value">${m.prediction_market ?? "—"}</span>
-          </div>
-          <div class="row">
-            <span class="label">Consensus</span>
-            <span class="value">${m.consensus ?? "—"}</span>
-          </div>
-          <div class="row">
-            <span class="label">Source</span>
-            <span class="value">${m.source ?? "—"}</span>
-          </div>
-        </div>
-      `).join("");
-    }
+<!-- EU -->
+<div class="section-card">
+  <div class="section-head">
+    <div class="section-title"><span class="flag">🇪🇺</span> Euro Area</div>
+    <div class="stabs">
+      <button class="stab active" onclick="switchTab('eu','rates',event)">CB Rates</button>
+      <button class="stab" onclick="switchTab('eu','inflation',event)">Inflation</button>
+      <button class="stab" onclick="switchTab('eu','gdp',event)">GDP</button>
+    </div>
+  </div>
+  <div id="eu-rates" class="tab-panel active"><table id="tbl-eu-rates"><tbody></tbody></table></div>
+  <div id="eu-inflation" class="tab-panel"><table id="tbl-eu-inflation"><tbody></tbody></table></div>
+  <div id="eu-gdp" class="tab-panel"><table id="tbl-eu-gdp"><tbody></tbody></table></div>
+</div>
 
-    loadData();
-  </script>
+<!-- Japan -->
+<div class="section-card">
+  <div class="section-head">
+    <div class="section-title"><span class="flag">🇯🇵</span> Japan</div>
+    <div class="stabs">
+      <button class="stab active" onclick="switchTab('jp','rates',event)">CB Rates</button>
+      <button class="stab" onclick="switchTab('jp','inflation',event)">Inflation</button>
+      <button class="stab" onclick="switchTab('jp','gdp',event)">GDP</button>
+    </div>
+  </div>
+  <div id="jp-rates" class="tab-panel active"><table id="tbl-jp-rates"><tbody></tbody></table></div>
+  <div id="jp-inflation" class="tab-panel"><table id="tbl-jp-inflation"><tbody></tbody></table></div>
+  <div id="jp-gdp" class="tab-panel"><table id="tbl-jp-gdp"><tbody></tbody></table></div>
+</div>
+
+</div><!-- /wrap -->
+<script>
+// ── Market definitions ─────────────────────────────────────
+// Each market: slug (event or market), name, description, type ('event'|'market'), section, category
+const MARKETS = [
+  // US rates
+  {slug:'fed-decision-in-july-181',          name:'Fed Decision — July 2026',           desc:'FOMC meeting Jul 28–29',                    section:'us', cat:'rates', type:'event'},
+  {slug:'what-will-the-fed-rate-be-at-the-end-of-2026', name:'Fed Rate — End of 2026', desc:'Upper bound of fed funds target after Dec FOMC', section:'us', cat:'rates', type:'event'},
+  {slug:'how-many-fed-rate-cuts-in-2026',    name:'# Fed Rate Cuts in 2026',            desc:'Total cuts Jan–Dec 2026',                   section:'us', cat:'rates', type:'event'},
+  {slug:'fed-rate-hike-in-2026',             name:'Fed Rate Hike in 2026?',             desc:'Any hike Jan–Dec 2026',                     section:'us', cat:'rates', type:'event'},
+  // US inflation
+  {slug:'how-high-will-inflation-get-in-2026', name:'US Inflation Peak in 2026',        desc:'Max CPI YoY % reached in 2026',             section:'us', cat:'inflation', type:'event'},
+  {slug:'will-us-cpi-exceed-3-in-2026',      name:'US CPI > 3% in 2026?',              desc:'Annual CPI above 3%',                       section:'us', cat:'inflation', type:'event'},
+  // US GDP
+  {slug:'us-gdp-growth-in-q2-2026',          name:'US GDP Growth — Q2 2026',           desc:'Annualized real GDP growth Q2',             section:'us', cat:'gdp', type:'event'},
+  {slug:'us-recession-by-end-of-2026',       name:'US Recession by End of 2026?',      desc:'Two consecutive quarters of negative GDP',  section:'us', cat:'gdp', type:'event'},
+  // EU rates
+  {slug:'ecb-interest-rates-july-2026',      name:'ECB Decision — July 2026',          desc:'ECB Governing Council meeting Jul 22–23',   section:'eu', cat:'rates', type:'event'},
+  {slug:'ecb-rate-hike-in-2026',             name:'ECB Rate Hike in 2026?',            desc:'Any hike Jan–Dec 2026',                     section:'eu', cat:'rates', type:'event'},
+  {slug:'ecb-rate-cut-in-2026',              name:'ECB Rate Cut in 2026?',             desc:'Any cut Jan–Dec 2026',                      section:'eu', cat:'rates', type:'event'},
+  // EU inflation
+  {slug:'euro-area-inflation-2026',          name:'Euro Area Inflation 2026',          desc:'Annual HICP inflation',                     section:'eu', cat:'inflation', type:'event'},
+  {slug:'ecb-inflation-target-2026',         name:'ECB Hits 2% Target in 2026?',       desc:'HICP reaches 2% target',                    section:'eu', cat:'inflation', type:'event'},
+  // EU GDP
+  {slug:'eu-recession-2026',                 name:'EU Recession in 2026?',             desc:'Euro area recession',                       section:'eu', cat:'gdp', type:'event'},
+  {slug:'euro-area-gdp-growth-2026',         name:'Euro Area GDP Growth 2026',         desc:'Annual real GDP growth %',                  section:'eu', cat:'gdp', type:'event'},
+  // Japan rates
+  {slug:'bank-of-japan-decision-in-july-659', name:'BOJ Decision — July 2026',         desc:'BOJ Monetary Policy Meeting Jul 30–31',     section:'jp', cat:'rates', type:'event'},
+  {slug:'bank-of-japan-decision-in-september', name:'BOJ Decision — September 2026',   desc:'BOJ meeting Sep 2026',                      section:'jp', cat:'rates', type:'event'},
+  {slug:'bank-of-japan-rate-hike-in-2026',   name:'BOJ Rate Hike in 2026?',           desc:'Any hike in 2026',                          section:'jp', cat:'rates', type:'event'},
+  // Japan inflation
+  {slug:'japan-core-cpi-yoy-in-2026',        name:'Japan Core CPI YoY 2026',          desc:'Core CPI annual % change',                  section:'jp', cat:'inflation', type:'event'},
+  {slug:'japan-core-core-cpi-yoy-in-2026',   name:'Japan Core-Core CPI YoY 2026',     desc:'Core-core CPI (ex food & energy)',           section:'jp', cat:'inflation', type:'event'},
+  // Japan GDP
+  {slug:'japan-gdp-growth-in-q2-2026',       name:'Japan GDP — Q2 2026',              desc:'QoQ annualized real GDP growth',             section:'jp', cat:'gdp', type:'event'},
+  {slug:'japan-recession-in-2026',           name:'Japan Recession in 2026?',          desc:'Two consecutive quarters negative growth',   section:'jp', cat:'gdp', type:'event'},
+];
+
+const TIMEOUT = 12000;
+let cache = {};  // slug -> fetched data
+let lastFetch = null;
+
+// ── Persistence ────────────────────────────────────────────
+function loadCache() {
+  try { const s = localStorage.getItem('macro_pm_v1'); if(s) cache = JSON.parse(s); } catch(_) {}
+}
+function saveCache() {
+  try { localStorage.setItem('macro_pm_v1', JSON.stringify(cache)); } catch(_) {}
+}
+loadCache();
+
+// ── Tab switching ──────────────────────────────────────────
+function switchTab(section, cat, e) {
+  const card = document.getElementById(section+'-rates').closest('.section-card');
+  card.querySelectorAll('.stab').forEach(b => b.classList.remove('active'));
+  card.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+  if (e) e.target.classList.add('active');
+  document.getElementById(section+'-'+cat).classList.add('active');
+}
+
+// ── Fetch ──────────────────────────────────────────────────
+async function fetchMarket(slug, type) {
+  const urls = [
+    `https://gamma-api.polymarket.com/events?slug=${encodeURIComponent(slug)}`,
+    `https://gamma-api.polymarket.com/markets?slug=${encodeURIComponent(slug)}`,
+  ];
+  for (const url of urls) {
+    try {
+      const r = await Promise.race([fetch(url), new Promise((_,rj)=>setTimeout(()=>rj(new Error('timeout')),TIMEOUT))]);
+      if (!r.ok) continue;
+      const data = await r.json();
+      const item = Array.isArray(data) ? data[0] : data;
+      if (!item) continue;
+      return item;
+    } catch(_) { continue; }
+  }
+  return null;
+}
+
+function parseMarkets(item) {
+  // Returns array of {outcome, price, volume} sorted by price desc
+  if (!item) return [];
+  const markets = item.markets || (item.outcomePrices ? [item] : []);
+  return markets.map(m => {
+    let prices = [];
+    try { prices = JSON.parse(m.outcomePrices || '[]'); } catch(_) {}
+    const outcomes = (() => { try { return JSON.parse(m.outcomes || '[]'); } catch(_) { return []; } })();
+    return prices.map((p, i) => ({
+      outcome: outcomes[i] || m.groupItemTitle || ('Outcome '+(i+1)),
+      price: parseFloat(p) || 0,
+      volume: parseFloat(m.volume || item.volume || 0),
+    }));
+  }).flat().sort((a,b) => b.price - a.price);
+}
+
+function fmtVol(v) {
+  if (!v || v < 100) return null;
+  if (v >= 1e6) return '$'+(v/1e6).toFixed(1)+'M';
+  if (v >= 1000) return '$'+(v/1000).toFixed(0)+'K';
+  return '$'+Math.round(v);
+}
+
+function volClass(v) {
+  if (!v || v < 1000) return 'liq-low';
+  if (v < 50000) return '';
+  return 'liq-ok';
+}
+
+// ── Render ─────────────────────────────────────────────────
+function renderMarket(m) {
+  const data = cache[m.slug];
+  const outcomes = data ? parseMarkets(data) : null;
+  const vol = data ? parseFloat(data.volume || (data.markets && data.markets[0]?.volume) || 0) : 0;
+  const volStr = fmtVol(vol);
+  const vc = volClass(vol);
+
+  let outcomeHtml = '';
+  if (!data) {
+    outcomeHtml = '<span class="skel" style="width:120px;height:14px;display:inline-block"></span>';
+  } else if (!outcomes || !outcomes.length) {
+    outcomeHtml = '<span class="dim">No data</span>';
+  } else {
+    const top3 = outcomes.slice(0, 3);
+    outcomeHtml = top3.map(o => `
+      <div class="outcome-top">
+        <span class="num">${(o.price*100).toFixed(0)}%</span>
+        <div class="prob-bar-wrap"><div class="prob-bar" style="width:${(o.price*100).toFixed(0)}%"></div></div>
+        <span class="outcome-label">${o.outcome}</span>
+      </div>`).join('');
+  }
+
+  return `<tr>
+    <td style="width:35%">
+      <div class="mkt-name">${m.name}</div>
+      <div class="mkt-sub">${m.desc}</div>
+    </td>
+    <td style="width:45%"><div class="outcome-block">${outcomeHtml}</div></td>
+    <td style="width:12%;text-align:right">
+      ${volStr ? `<span class="vol-badge ${vc}">${volStr}</span>` : '<span class="dim">—</span>'}
+    </td>
+    <td style="width:8%;text-align:right">
+      <a class="mkt-link" href="https://polymarket.com/event/${m.slug}" target="_blank">↗</a>
+    </td>
+  </tr>`;
+}
+
+function renderAll() {
+  const sections = ['us','eu','jp'];
+  const cats = ['rates','inflation','gdp'];
+  const headers = '<thead><tr><th>Market</th><th>Top outcomes</th><th style="text-align:right">Volume</th><th></th></tr></thead>';
+
+  sections.forEach(sec => {
+    cats.forEach(cat => {
+      const markets = MARKETS.filter(m => m.section === sec && m.cat === cat);
+      const tbody = markets.map(m => renderMarket(m)).join('');
+      const tbl = document.getElementById(`tbl-${sec}-${cat}`);
+      if (tbl) tbl.innerHTML = headers + '<tbody>' + tbody + '</tbody>';
+    });
+  });
+}
+
+async function refreshAll() {
+  const btn = document.getElementById('btn-refresh');
+  btn.disabled = true; btn.textContent = '↻ Fetching…';
+  setSrc('load', 'fetching…');
+
+  let ok = 0, fail = 0, notFound = 0;
+
+  await Promise.all(MARKETS.map(async m => {
+    try {
+      const data = await fetchMarket(m.slug, m.type);
+      if (data) {
+        cache[m.slug] = data;
+        ok++;
+      } else {
+        notFound++;
+      }
+    } catch(_) { fail++; }
+    renderAll(); // update progressively
+  }));
+
+  saveCache();
+  lastFetch = new Date();
+  document.getElementById('ts').textContent = 'Updated ' + lastFetch.toLocaleTimeString();
+  document.getElementById('fetch-detail').textContent = `${ok} markets fetched · ${notFound} not found · ${fail} errors`;
+  setSrc(ok > 0 ? 'ok' : 'err', ok > 0 ? `${ok} markets live` : 'all failed');
+  btn.disabled = false; btn.textContent = '↻ Refresh';
+}
+
+function setSrc(state, msg) {
+  const d = document.getElementById('d-poly');
+  const s = document.getElementById('s-poly');
+  d.className = 'dot' + (state==='ok'?' dot-ok':state==='err'?' dot-err':state==='load'?' dot-load':'');
+  s.textContent = msg;
+}
+
+function exportCSV() {
+  let csv = 'Section,Category,Market,Top Outcome,Probability,Volume\n';
+  MARKETS.forEach(m => {
+    const data = cache[m.slug];
+    const outcomes = data ? parseMarkets(data) : [];
+    const top = outcomes[0];
+    const vol = data ? parseFloat(data.volume || 0) : 0;
+    csv += `${m.section},${m.cat},"${m.name}","${top?.outcome||''}",${top?(top.price*100).toFixed(0)+'%':''},${fmtVol(vol)||''}\n`;
+  });
+  const a = document.createElement('a');
+  a.href = 'data:text/csv;charset=utf-8,' + encodeURIComponent(csv);
+  a.download = `macro_pm_${new Date().toISOString().slice(0,10)}.csv`;
+  a.click();
+}
+
+// ── Boot ───────────────────────────────────────────────────
+window.addEventListener('DOMContentLoaded', () => {
+  renderAll(); // show cached data immediately
+  if (Object.keys(cache).length > 0) {
+    setSrc('ok', 'cached — click Refresh to update');
+    document.getElementById('ts').textContent = 'Showing cached data';
+  }
+  refreshAll(); // then fetch fresh
+});
+</script>
 </body>
 </html>
